@@ -86,4 +86,4 @@ auditable in the source: see `src/lib/storage.js` for every key that is written,
 
 ## Contact
 
-Open an issue at <https://github.com/whilefree/whilefree/issues>.
+Open an issue at <https://github.com/5ghzx/whilefree/issues>.

@@ -7,7 +7,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/whilefree/whilefree.git"
+    "url": "https://github.com/5ghzx/whilefree.git"
   },
   "scripts": {
     "check": "node scripts/check.mjs",

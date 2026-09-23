@@ -121,6 +121,20 @@
     return U.dayRange(start, end);
   }
 
+  /** The calendar week containing `endKey`, Monday first. */
+  function weekKeys(endKey) {
+    const end = endKey || U.dayKey();
+    const start = U.shiftDay(end, -U.weekdayIndex(U.dayKeyToDate(end).getTime()));
+    return U.dayRange(start, end);
+  }
+
+  /** The calendar month containing `endKey`, up to and including it. */
+  function monthKeys(endKey) {
+    const end = endKey || U.dayKey();
+    const d = U.dayKeyToDate(end);
+    return U.dayRange(`${d.getFullYear()}-${U.pad(d.getMonth() + 1)}-01`, end);
+  }
+
   function allKeys(stats, endKey) {
     const end = endKey || U.dayKey();
     const keys = Object.keys((stats && stats.days) || {}).sort();
@@ -445,6 +459,8 @@
     addUsage,
     mergeStats,
     rangeKeys,
+    weekKeys,
+    monthKeys,
     allKeys,
     summarize,
     split,

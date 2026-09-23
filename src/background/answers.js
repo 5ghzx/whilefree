@@ -26,6 +26,18 @@
     const items = await list();
     const count = items.length;
     await B.setBadge(count ? String(count) : '', BADGE_COLOR);
+    // The toolbar tooltip is part of the product, so hovering the icon says the same
+    // thing the badge says. It is also the only place a count is visible without
+    // opening the popup.
+    try {
+      await B.call('action', 'setTitle', {
+        title: count
+          ? `${WF.app.name()}: ${count} answer${count === 1 ? '' : 's'} ready`
+          : `${WF.app.name()}: ask every AI at once`,
+      });
+    } catch (err) {
+      /* setTitle is cosmetic */
+    }
     return count;
   }
 

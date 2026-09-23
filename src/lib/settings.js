@@ -5,9 +5,11 @@
   const DEFAULTS = {
     version: 1,
 
-    // Which AIs a broadcast fans out to. Everything is on by default: WhileFree
-    // has no paid tier, so there is no cap on how many sites you can use.
-    enabledSites: ['chatgpt', 'claude', 'gemini', 'perplexity', 'deepseek'],
+    // Which AIs a broadcast fans out to. `null` means every AI the registry knows
+    // about, which is the intended default: WhileFree has no paid tier, so there is no
+    // cap on how many sites you can use. Keeping the list implicit here means adding a
+    // provider in lib/sites.js is genuinely a one-file change.
+    enabledSites: null,
 
     // Tabs
     autoOpenTabs: true, // open a background tab for an enabled AI that is not open
@@ -43,9 +45,14 @@
 
   function normalize(raw) {
     const merged = WF.util.deepMerge(DEFAULTS, raw || {});
-    const known = WF.sites ? WF.sites.ORDER : DEFAULTS.enabledSites;
-    merged.enabledSites = (merged.enabledSites || []).filter((id) => known.includes(id));
-    if (!merged.enabledSites.length) merged.enabledSites = [known[0]];
+    const known = WF.sites ? WF.sites.ORDER : [];
+    // An explicit list is honoured, minus anything the registry no longer knows;
+    // null (the default) means everything, which is how a newly added provider
+    // becomes available without the user having to go and switch it on.
+    merged.enabledSites = Array.isArray(merged.enabledSites)
+      ? merged.enabledSites.filter((id) => known.includes(id))
+      : known.slice();
+    if (!merged.enabledSites.length) merged.enabledSites = known.slice(0, 1);
     // Keep site ids that disappeared from the registry, so a temporary removal
     // does not silently wipe the user's switch state.
     for (const id of Object.keys(raw && raw.chimeSites ? raw.chimeSites : {})) {

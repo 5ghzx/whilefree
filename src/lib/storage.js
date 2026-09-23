@@ -177,6 +177,71 @@
     return { ok: true };
   }
 
+  /** Daily rows, one line per day per AI: the dataset a spreadsheet wants. */
+  async function exportDailyCsv() {
+    const stats = await getStats();
+    const columns = [
+      { key: 'day', label: 'day' },
+      { key: 'site', label: 'ai' },
+      { key: 'writing_ms', label: 'writing_ms' },
+      { key: 'waiting_ms', label: 'waiting_ms' },
+      { key: 'waiting_elsewhere_ms', label: 'waiting_elsewhere_ms' },
+      { key: 'reading_ms', label: 'reading_ms' },
+      { key: 'prompts', label: 'prompts' },
+      { key: 'answers', label: 'answers' },
+      { key: 'follow_ups', label: 'follow_ups' },
+    ];
+    const rows = [];
+    for (const day of Object.keys(stats.days || {}).sort()) {
+      for (const [siteId, counters] of Object.entries(stats.days[day].sites || {})) {
+        rows.push({
+          day,
+          site: siteId,
+          writing_ms: counters.writing || 0,
+          waiting_ms: counters.waiting || 0,
+          waiting_elsewhere_ms: counters.waitingAway || 0,
+          reading_ms: counters.reading || 0,
+          prompts: counters.prompts || 0,
+          answers: counters.answers || 0,
+          follow_ups: counters.followUps || 0,
+        });
+      }
+    }
+    return WF.util.toCsv(columns, rows);
+  }
+
+  /** One line per measured answer. Durations and counts only, never any text. */
+  async function exportAnswersCsv() {
+    const events = await getEvents();
+    const columns = [
+      { key: 'sent_at', label: 'sent_at' },
+      { key: 'day', label: 'day' },
+      { key: 'ai', label: 'ai' },
+      { key: 'origin', label: 'origin' },
+      { key: 'prompt_chars', label: 'prompt_chars' },
+      { key: 'first_words_ms', label: 'first_words_ms' },
+      { key: 'answer_ms', label: 'answer_ms' },
+      { key: 'away_ms', label: 'away_ms' },
+      { key: 'left_before_it_landed', label: 'left_before_it_landed' },
+      { key: 'attention', label: 'attention' },
+    ];
+    const rows = [...events]
+      .sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0))
+      .map((event) => ({
+        sent_at: event.sentAt ? new Date(event.sentAt).toISOString() : '',
+        day: event.sentAt ? WF.util.dayKey(event.sentAt) : '',
+        ai: event.siteId,
+        origin: event.origin || 'broadcast',
+        prompt_chars: event.promptChars || 0,
+        first_words_ms: event.firstWordAt && event.sentAt ? event.firstWordAt - event.sentAt : '',
+        answer_ms: event.doneAt && event.sentAt ? event.doneAt - event.sentAt : '',
+        away_ms: event.awayMs || 0,
+        left_before_it_landed: event.abandoned ? 'yes' : 'no',
+        attention: event.attention || '',
+      }));
+    return WF.util.toCsv(columns, rows);
+  }
+
   async function wipeAll() {
     await B.storageClear();
     return { ok: true };
@@ -206,6 +271,8 @@
     getMeta,
     setMeta,
     exportAll,
+    exportDailyCsv,
+    exportAnswersCsv,
     importAll,
     wipeAll,
   };

@@ -159,6 +159,25 @@
     return s.length <= n ? s : `${s.slice(0, Math.max(0, n - 1))}\u2026`;
   }
 
+  /**
+   * Build a CSV document from rows. Values are quoted only when they need it, and
+   * a formula-injection prefix is neutralised, because a spreadsheet will happily
+   * execute a leading `=` from data it was handed.
+   */
+  function toCsv(columns, rows) {
+    const escapeCell = (value) => {
+      if (value === null || value === undefined) return '';
+      let text = String(value);
+      // Spreadsheets execute a leading =, +, @ or tab. A minus only counts as an
+      // attack when it is not simply a negative number.
+      if (/^[=\u002b@\t\r]/.test(text) || /^-(?![\d.])/.test(text)) text = `'${text}`;
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const head = columns.map((column) => escapeCell(column.label)).join(',');
+    const body = rows.map((row) => columns.map((column) => escapeCell(row[column.key])).join(','));
+    return `${[head, ...body].join('\n')}\n`;
+  }
+
   function deepMerge(base, override) {
     const out = Array.isArray(base) ? base.slice() : { ...base };
     if (!override || typeof override !== 'object') return out;
@@ -220,6 +239,7 @@
     num,
     escapeHtml,
     truncate,
+    toCsv,
     deepMerge,
     debounce,
     near,

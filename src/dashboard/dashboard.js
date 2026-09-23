@@ -17,7 +17,7 @@ let stats = null;
 let events = [];
 let rangeDays = 7;
 let metric = 'waiting';
-let cardRange = 7;
+let cardRange = 'week';
 const diagnostics = {};
 
 // ---------------------------------------------------------------------------
@@ -376,8 +376,16 @@ function renderHeat() {
 
 // 8. Summary card ------------------------------------------------------------
 
+/** Calendar week, calendar month, a rolling window, or everything. */
+function cardKeys() {
+  if (cardRange === 'all') return WF.stats.allKeys(stats);
+  if (cardRange === 'week') return WF.stats.weekKeys();
+  if (cardRange === 'month') return WF.stats.monthKeys();
+  return WF.stats.rangeKeys(Number(cardRange));
+}
+
 function summaryText() {
-  const keys = cardRange === 'all' ? WF.stats.allKeys(stats) : WF.stats.rangeKeys(Number(cardRange));
+  const keys = cardKeys();
   const sum = WF.stats.summarize(stats, keys);
   const head = WF.stats.headToHead(eventsInRange(keys));
   const costs = WF.stats.costRows(sum.perSite, settings.prices, keys);
@@ -495,7 +503,6 @@ function renderSettings() {
     ['chimeEnabled', 'Chime when an answer lands'],
     ['notifySystem', 'Also raise a system notification'],
     ['overlayEnabled', 'Show the launcher inside the AI pages'],
-    ['disableSlowModes', 'Switch off slow modes before sending (DeepSeek DeepThink)'],
   ];
 
   el('behavior-toggles').innerHTML = toggles
@@ -538,15 +545,47 @@ function renderSettings() {
       save({ chimeSites });
     });
   }
+
+  renderSlowModes();
+}
+
+/**
+ * One switch per AI that has a slow mode we know how to turn off. Only AIs that
+ * actually have one are listed, so the panel never implies a toggle exists where it
+ * does not.
+ */
+function renderSlowModes() {
+  const host = el('slowmode-sites');
+  const candidates = WF.sites.list().filter((site) => site.togglesOff && site.togglesOff.length);
+  if (!candidates.length) {
+    host.innerHTML = '<span class="dim">None of the supported AIs expose a slow mode.</span>';
+    return;
+  }
+  host.innerHTML = candidates
+    .map(
+      (site) =>
+        `<span class="chip" data-slow="${site.id}" data-off="${
+          settings.disableSlowModes[site.id] === true ? 0 : 1
+        }"><i class="monogram" style="background:${site.color}">${U.escapeHtml(
+          site.monogram
+        )}</i>${U.escapeHtml(site.name)}</span>`
+    )
+    .join('');
+
+  for (const chip of host.querySelectorAll('.chip')) {
+    chip.addEventListener('click', () => {
+      const siteId = chip.dataset.slow;
+      const on = chip.dataset.off === '1';
+      save({ disableSlowModes: { ...settings.disableSlowModes, [siteId]: on } });
+    });
+  }
 }
 
 function toggleValue(key) {
-  if (key === 'disableSlowModes') return settings.disableSlowModes.deepseek !== false;
   return settings[key] !== false;
 }
 
 function patchForToggle(key, value) {
-  if (key === 'disableSlowModes') return { disableSlowModes: { ...settings.disableSlowModes, deepseek: value } };
   return { [key]: value };
 }
 
@@ -569,6 +608,41 @@ function download(filename, text, type) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function doExportCsv(kind) {
+  const isDaily = kind === 'daily';
+  const text = isDaily ? await WF.storage.exportDailyCsv() : await WF.storage.exportAnswersCsv();
+  download(`whilefree-${isDaily ? 'daily' : 'answers'}-${U.dayKey()}.csv`, text, 'text/csv');
+  flashNote(
+    isDaily
+      ? 'Exported one row per day per AI: writing, waiting, reading, prompts, answers.'
+      : 'Exported one row per timed answer: first words, total time, and whether you had already left.',
+    'good'
+  );
+}
+
+/** Run the markup check across every AI that is currently open. */
+async function checkAllOpen() {
+  const host = el('diagnostics');
+  const open = [];
+  for (const site of WF.sites.list()) {
+    const res = await WF.browser.send({ type: MSG.TEST_SITE, siteId: site.id });
+    if (res && res.ok) open.push(res.diagnostic);
+  }
+  if (!open.length) {
+    host.innerHTML =
+      '<p class="empty">None of the supported AIs is open right now. Open the ones you use, then run the check again.</p>';
+    return;
+  }
+  host.innerHTML = `<details class="diag" open>
+      <summary>Markup check: ${open.length} open AI${open.length === 1 ? '' : 's'}</summary>
+      <pre>${U.escapeHtml(JSON.stringify(open, null, 2))}</pre>
+      <p class="dim" style="font-size: 12px">
+        Paste this into an issue if something is missing. A fix is usually one line in
+        src/lib/sites.js.
+      </p>
+    </details>`;
 }
 
 async function doExport() {
@@ -628,8 +702,7 @@ function wire() {
   });
 
   el('card-range').addEventListener('change', (event) => {
-    const value = event.target.value;
-    cardRange = value === 'all' ? 'all' : Number(value);
+    cardRange = event.target.value;
     renderSummaryButton();
   });
 
@@ -652,6 +725,9 @@ function wire() {
   });
 
   el('export').addEventListener('click', doExport);
+  el('export-daily').addEventListener('click', () => doExportCsv('daily'));
+  el('export-answers').addEventListener('click', () => doExportCsv('answers'));
+  el('check-all').addEventListener('click', checkAllOpen);
   el('import').addEventListener('click', () => el('import-file').click());
   el('import-file').addEventListener('change', (event) => {
     const file = event.target.files && event.target.files[0];

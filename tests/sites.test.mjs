@@ -14,13 +14,47 @@ const { sites, ATTENTION } = globalThis.WF;
  * be edited by a stranger fixing a broken selector. They keep the shape honest.
  */
 
-test('the five supported AIs are all present and in a stable order', () => {
-  assert.deepEqual(sites.ORDER, ['chatgpt', 'claude', 'gemini', 'perplexity', 'deepseek']);
-  assert.equal(sites.list().length, 5);
+test('every supported AI is present, listed once, and in a stable order', () => {
+  assert.deepEqual(sites.ORDER, [
+    'chatgpt',
+    'claude',
+    'gemini',
+    'perplexity',
+    'deepseek',
+    'grok',
+    'copilot',
+    'mistral',
+    'qwen',
+    'kimi',
+  ]);
+  assert.equal(new Set(sites.ORDER).size, sites.ORDER.length, 'no duplicate ids');
+  assert.equal(sites.list().length, sites.ORDER.length, 'every id has an adapter');
   for (const id of sites.ORDER) {
     assert.ok(sites.byId(id), `missing adapter: ${id}`);
   }
   assert.equal(sites.byId('nope'), null);
+});
+
+test('no two AIs share a name, a monogram or a chart colour', () => {
+  const seen = { name: new Map(), monogram: new Map(), color: new Map() };
+  for (const site of sites.list()) {
+    for (const field of ['name', 'monogram', 'color']) {
+      const key = String(site[field]).toLowerCase();
+      assert.equal(
+        seen[field].has(key),
+        false,
+        `${site.id} reuses the ${field} "${site[field]}" already used by ${seen[field].get(key)}`
+      );
+      seen[field].set(key, site.id);
+    }
+  }
+});
+
+test('a clear majority of adapters lean on the structural fallback', () => {
+  // A useful sanity signal: when every adapter has a bespoke selector list and none
+  // rely on the heuristics, a single careless edit can break a site silently.
+  const withMode = sites.list().filter((site) => ['click', 'enter'].includes(site.send.mode));
+  assert.equal(withMode.length, sites.list().length);
 });
 
 test('every adapter has the fields the runtime depends on', () => {
@@ -96,12 +130,27 @@ test('fromUrl maps a page url to its adapter, or to nothing', () => {
   assert.equal(sites.fromUrl('https://gemini.google.com/app/xyz').id, 'gemini');
   assert.equal(sites.fromUrl('https://www.perplexity.ai/search?q=hi').id, 'perplexity');
   assert.equal(sites.fromUrl('https://chat.deepseek.com/a/chat').id, 'deepseek');
+  assert.equal(sites.fromUrl('https://grok.com/chat/1').id, 'grok');
+  assert.equal(sites.fromUrl('https://copilot.microsoft.com/chats/1').id, 'copilot');
+  assert.equal(sites.fromUrl('https://chat.mistral.ai/chat').id, 'mistral');
+  assert.equal(sites.fromUrl('https://chat.qwen.ai/c/1').id, 'qwen');
+  assert.equal(sites.fromUrl('https://www.kimi.com/chat/1').id, 'kimi');
 
   assert.equal(sites.fromUrl('https://chatgpt.com.evil.example/'), null, 'no substring matching');
   assert.equal(sites.fromUrl('https://example.com/'), null);
   assert.equal(sites.fromUrl('not a url'), null);
   assert.equal(sites.fromUrl(''), null);
   assert.equal(sites.fromUrl(undefined), null);
+});
+
+test('every adapter can be reached from its own new-chat url', () => {
+  // A newChatUrl that no host covers would open a tab the content script never runs in,
+  // which fails as "could not reach the tab" with nothing obviously wrong on screen.
+  for (const site of sites.list()) {
+    const found = sites.fromUrl(site.newChatUrl);
+    assert.ok(found, `${site.id}: newChatUrl is not covered by any adapter`);
+    assert.equal(found.id, site.id, `${site.id}: newChatUrl maps to ${found.id}`);
+  }
 });
 
 test('matchPatterns returns host permissions for exactly the sites asked for', () => {

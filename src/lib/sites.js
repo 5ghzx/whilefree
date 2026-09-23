@@ -145,7 +145,7 @@
         urlPatterns: ['accounts.google.com'],
       },
       answerTimeoutMs: 300000,
-      togglesOff: [],
+      togglesOff: [{ text: /deep research/i, optional: true }],
     },
 
     perplexity: {
@@ -190,7 +190,7 @@
         urlPatterns: ['/login'],
       },
       answerTimeoutMs: 420000,
-      togglesOff: [],
+      togglesOff: [{ text: /research/i, optional: true }, { text: /pro search/i, optional: true }],
     },
 
     deepseek: {
@@ -227,9 +227,211 @@
       // makes every broadcast answer slow, so WhileFree switches them off first.
       togglesOff: [{ text: /deep\s?think/i }, { text: /^search$/i, optional: true }],
     },
+
+    grok: {
+      id: 'grok',
+      name: 'Grok',
+      monogram: 'X',
+      color: '#6b7280',
+      hosts: ['grok.com', 'www.grok.com'],
+      matchPatterns: ['https://grok.com/*', 'https://www.grok.com/*'],
+      newChatUrl: 'https://grok.com/',
+      input: {
+        kind: 'auto',
+        selectors: ['textarea[placeholder]', 'div[contenteditable="true"]', 'textarea'],
+      },
+      send: {
+        mode: 'enter',
+        selectors: ['button[type="submit"][aria-label]', 'button[aria-label="Submit"]', 'button[aria-label="Send"]'],
+      },
+      stop: {
+        selectors: [
+          'button[aria-label="Stop model response"]',
+          'button[aria-label*="Stop" i]',
+        ],
+      },
+      answer: {
+        selectors: ['.message-bubble', 'div[class*="response-content"]', 'div[class*="message"][class*="assistant"]'],
+      },
+      login: {
+        selectors: ['a[href*="sign-in"]', 'a[href*="sign-up"]', 'button[data-testid="login-button"]'],
+        urlPatterns: ['/sign-in', '/sign-up'],
+      },
+      answerTimeoutMs: 300000,
+      togglesOff: [{ text: /deep\s?search/i, optional: true }, { text: /^think/i, optional: true }],
+    },
+
+    copilot: {
+      id: 'copilot',
+      name: 'Copilot',
+      monogram: '\u25ce',
+      color: '#0078d4',
+      hosts: ['copilot.microsoft.com', 'www.copilot.microsoft.com'],
+      matchPatterns: ['https://copilot.microsoft.com/*', 'https://www.copilot.microsoft.com/*'],
+      newChatUrl: 'https://copilot.microsoft.com/',
+      input: {
+        kind: 'auto',
+        selectors: [
+          'textarea#userInput',
+          'textarea[data-testid="composer-input"]',
+          'textarea[placeholder]',
+          'textarea',
+        ],
+      },
+      send: {
+        mode: 'click',
+        selectors: [
+          'button[data-testid="submit-button"]',
+          'button[aria-label="Submit message"]',
+          'button[title="Submit message"]',
+          'button[type="submit"]',
+        ],
+      },
+      stop: {
+        selectors: [
+          'button[data-testid="stop-button"]',
+          'button[aria-label="Stop generating"]',
+          'button[aria-label*="Stop" i]',
+        ],
+      },
+      answer: {
+        selectors: [
+          '[data-content="ai-message"]',
+          '[data-testid="message-bubble"]',
+          '.ai-message-item',
+          'div[class*="assistant"]',
+        ],
+      },
+      login: {
+        selectors: ['a[href*="login.live.com"]', 'a[href*="login.microsoftonline.com"]', 'a[href*="signin"]'],
+        urlPatterns: ['login.live.com', 'login.microsoftonline.com'],
+      },
+      answerTimeoutMs: 300000,
+      togglesOff: [{ text: /think deeper/i, optional: true }],
+    },
+
+    mistral: {
+      id: 'mistral',
+      name: 'Le Chat',
+      monogram: 'M',
+      color: '#ff7000',
+      hosts: ['chat.mistral.ai'],
+      matchPatterns: ['https://chat.mistral.ai/*'],
+      newChatUrl: 'https://chat.mistral.ai/chat',
+      input: {
+        kind: 'contenteditable',
+        selectors: [
+          'div[contenteditable="true"].ProseMirror',
+          'div[contenteditable="true"][role="textbox"]',
+          'textarea[placeholder]',
+          'textarea',
+        ],
+      },
+      send: {
+        mode: 'click',
+        selectors: ['button[type="submit"]', 'button[aria-label="Send"]', 'button[aria-label*="Send" i]'],
+      },
+      stop: {
+        selectors: ['button[aria-label="Stop"]', 'button[aria-label*="Stop" i]'],
+      },
+      answer: {
+        selectors: ['div.prose', 'div[class*="assistant"][class*="message"]', 'div[class*="markdown"]'],
+      },
+      login: {
+        selectors: ['a[href*="/auth/login"]', 'a[href*="login"]', 'button[data-testid="login-button"]'],
+        urlPatterns: ['/auth/login'],
+      },
+      answerTimeoutMs: 300000,
+      togglesOff: [],
+    },
+
+    qwen: {
+      id: 'qwen',
+      name: 'Qwen',
+      monogram: 'Q',
+      color: '#615ced',
+      hosts: ['chat.qwen.ai', 'chat.qwenlm.ai'],
+      matchPatterns: ['https://chat.qwen.ai/*', 'https://chat.qwenlm.ai/*'],
+      newChatUrl: 'https://chat.qwen.ai/',
+      input: {
+        kind: 'auto',
+        selectors: ['textarea#chat-input', 'textarea[placeholder]', 'div[contenteditable="true"]', 'textarea'],
+      },
+      send: {
+        mode: 'enter',
+        selectors: [
+          'button#send-message-button',
+          'div[role="button"][aria-label*="send" i]',
+          'button[type="submit"]',
+        ],
+      },
+      stop: {
+        selectors: ['button[id*="stop" i]', 'div[role="button"][aria-label*="stop" i]', 'button[aria-label*="Stop" i]'],
+      },
+      answer: {
+        selectors: ['.markdown-content', 'div[class*="response-message"]', 'div[class*="markdown"]'],
+      },
+      login: {
+        selectors: ['a[href*="/auth"]', 'button[class*="login"]', 'a[href*="login"]'],
+        urlPatterns: ['/auth'],
+      },
+      answerTimeoutMs: 300000,
+      togglesOff: [{ text: /^thinking/i, optional: true }],
+    },
+
+    kimi: {
+      id: 'kimi',
+      name: 'Kimi',
+      monogram: 'K',
+      color: '#1d4ed8',
+      hosts: ['kimi.com', 'www.kimi.com', 'kimi.moonshot.cn'],
+      matchPatterns: ['https://kimi.com/*', 'https://www.kimi.com/*', 'https://kimi.moonshot.cn/*'],
+      newChatUrl: 'https://www.kimi.com/',
+      input: {
+        kind: 'auto',
+        selectors: [
+          'div[contenteditable="true"]#chat-input',
+          'div[contenteditable="true"]',
+          'textarea[placeholder]',
+          'textarea',
+        ],
+      },
+      send: {
+        mode: 'enter',
+        selectors: ['div[class*="send-button"]', 'button[aria-label="Send"]', 'button[type="submit"]'],
+      },
+      stop: {
+        selectors: ['div[class*="stop-button"]', 'button[aria-label*="Stop" i]', 'div[class*="stop"]'],
+      },
+      answer: {
+        selectors: ['div[class*="segment-content"]', '.markdown', 'div[class*="markdown"]'],
+      },
+      login: {
+        selectors: ['a[href*="/login"]', 'a[href*="login"]', 'button[class*="login"]'],
+        urlPatterns: ['/login'],
+      },
+      answerTimeoutMs: 300000,
+      togglesOff: [{ text: /long thinking/i, optional: true }, { text: /^thinking/i, optional: true }],
+    },
   };
 
-  const ORDER = ['chatgpt', 'claude', 'gemini', 'perplexity', 'deepseek'];
+  /**
+   * Order matters twice: it is the order the popup and dashboard list the AIs, and
+   * the order a broadcast walks them in. One prompt at a time, so the ones nearer the
+   * top start first.
+   */
+  const ORDER = [
+    'chatgpt',
+    'claude',
+    'gemini',
+    'perplexity',
+    'deepseek',
+    'grok',
+    'copilot',
+    'mistral',
+    'qwen',
+    'kimi',
+  ];
   const list = () => ORDER.map((id) => SITES[id]);
 
   /** Which site does this URL belong to? */
@@ -323,8 +525,12 @@
   };
 
   async function applyQuirks(site, ctx, settings) {
-    const disabled = (settings && settings.disableSlowModes && settings.disableSlowModes[site.id]) !== false;
-    if (!disabled || !site.togglesOff || !site.togglesOff.length) return;
+    // Opt-in per site. A slow mode is only switched off when the user asked for it
+    // (DeepSeek ships on, because it remembers DeepThink between visits). Guessing
+    // here would silently click toggles the user never chose, on sites where a
+    // "research" switch is something people genuinely want on.
+    const wanted = !!(settings && settings.disableSlowModes && settings.disableSlowModes[site.id] === true);
+    if (!wanted || !site.togglesOff || !site.togglesOff.length) return;
     for (const toggle of site.togglesOff) {
       await QUIRKS.toggleOff(ctx, toggle);
     }

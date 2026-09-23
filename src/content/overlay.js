@@ -156,7 +156,10 @@
     const meta = STATUS_META[target.status] || STATUS_META.queued;
     const waited = target.sentAt ? (target.doneAt || now) - target.sentAt : null;
     let detail = meta.label;
-    if (target.status === 'done' && waited !== null) detail = `answered in ${U.humanShort(waited)}`;
+    // "first, 6s" for the one that beat the others, "answered in 8s" for the rest.
+    if (target.status === 'done' && waited !== null) {
+      detail = target.first ? `first, ${U.humanShort(waited)}` : `answered in ${U.humanShort(waited)}`;
+    }
     else if (target.attention) detail = WF.attentionLabel(target.attention);
     else if (target.error) detail = target.error;
     else if (target.status === 'streaming' && waited !== null) detail = `${U.humanShort(waited)} so far`;
@@ -267,6 +270,10 @@
     Object.assign(row, patch);
     if (patch.status === 'sent' && !row.sentAt) row.sentAt = Date.now();
     if ((patch.status === 'done' || patch.status === 'error' || patch.status === 'timeout') && !row.doneAt) {
+      // Decide "first" before stamping doneAt, or this row wins its own race.
+      if (patch.status === 'done') {
+        row.first = !state.job.targets.some((other) => other !== row && other.doneAt);
+      }
       row.doneAt = Date.now();
     }
     render();

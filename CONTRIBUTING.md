@@ -7,7 +7,7 @@ cannot fix themselves.
 ## The five-minute version
 
 ```bash
-git clone https://github.com/whilefree/whilefree.git
+git clone https://github.com/5ghzx/whilefree.git
 cd whilefree
 npm run verify     # check + test + build
 ```

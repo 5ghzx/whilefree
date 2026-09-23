@@ -35,8 +35,8 @@
       this.doneAt = null;
       this.awayMs = 0;
       this.quietMs = 0;
-      this.lastChars = WF.dom.assistantChars(this.doc, this.site).chars;
-      this.baselineChars = this.lastChars;
+      this.baselineChars = WF.dom.assistantChars(this.doc, this.site).chars;
+      this.highWater = this.baselineChars;
       this.lastTick = now;
       this.sawStreaming = false;
       this.phase = WF.PHASE.SENT;
@@ -88,24 +88,27 @@
       this.lastTick = now;
 
       const { chars } = WF.dom.assistantChars(this.doc, this.site);
-      const grew = chars > this.baselineChars;
-      const stopped = !WF.dom.findStopButton(this.doc, this.site);
 
-      if (grew && this.firstWordAt === null) {
-        this.firstWordAt = now;
-        this.emit(WF.PHASE.STREAMING);
-      }
-
-      if (chars !== this.lastChars) {
+      // Only *increases* count as output. Long conversations are virtualised, so the
+      // measured total can shrink when an old turn is unmounted, and treating that as
+      // activity would both reset the quiet timer and mis-time the answer. A high-water
+      // mark makes the measurement monotonic no matter what the page does.
+      if (chars > this.highWater) {
+        this.highWater = chars;
         this.quietMs = 0;
-        this.lastChars = chars;
-        if (this.phase !== WF.PHASE.STREAMING) {
+        if (this.firstWordAt === null) {
+          this.firstWordAt = now;
+          this.emit(WF.PHASE.STREAMING);
+        } else if (this.phase !== WF.PHASE.STREAMING) {
           this.phase = WF.PHASE.STREAMING;
           this.emit(WF.PHASE.STREAMING);
         }
       } else {
         this.quietMs += TICK_MS;
       }
+
+      const grew = this.highWater > this.baselineChars;
+      const stopped = !WF.dom.findStopButton(this.doc, this.site);
 
       // A check or a quota banner that appears mid-answer is the one thing worth
       // interrupting for: the answer will never arrive.
@@ -121,7 +124,10 @@
         this.doneAt = now;
         this.sawStreaming = true;
         this.stop();
-        this.emit(WF.PHASE.DONE, { chars, charsAdded: chars - this.baselineChars });
+        this.emit(WF.PHASE.DONE, {
+          chars: this.highWater,
+          charsAdded: this.highWater - this.baselineChars,
+        });
         return;
       }
 

@@ -36,9 +36,9 @@
       return manifest().version || '0.0.0';
     },
 
-    homepage: 'https://github.com/whilefree/whilefree',
-    repo: 'https://github.com/whilefree/whilefree',
-    issues: 'https://github.com/whilefree/whilefree/issues',
+    homepage: 'https://github.com/5ghzx/whilefree',
+    repo: 'https://github.com/5ghzx/whilefree',
+    issues: 'https://github.com/5ghzx/whilefree/issues',
     license: 'MIT',
 
     /** The one line the popup and dashboard show under the title. */

@@ -76,6 +76,40 @@ test('split reports the three states as shares of the whole', () => {
   assert.equal(split.readingIsBiggest, true, '160s of reading beats 80s of writing and waiting');
 });
 
+test('calendar week and month ranges are anchored to the day asked about', () => {
+  // 2026-09-23 is a Wednesday.
+  const week = stats.weekKeys('2026-09-23');
+  assert.equal(week[0], '2026-09-21', 'weeks start on Monday');
+  assert.equal(week[week.length - 1], '2026-09-23');
+  assert.equal(week.length, 3);
+
+  const monday = stats.weekKeys('2026-09-21');
+  assert.equal(monday.length, 1, 'on a Monday, the week is just that day so far');
+
+  const month = stats.monthKeys('2026-09-23');
+  assert.equal(month[0], '2026-09-01');
+  assert.equal(month.length, 23);
+
+  const february = stats.monthKeys('2026-02-15');
+  assert.equal(february[0], '2026-02-01');
+  assert.equal(february.length, 15);
+});
+
+test('a rolling range always ends today and has the requested length', () => {
+  const keys = stats.rangeKeys(7, '2026-09-23');
+  assert.equal(keys.length, 7);
+  assert.equal(keys[0], '2026-09-17');
+  assert.equal(keys[6], '2026-09-23');
+  assert.equal(stats.rangeKeys(1, '2026-09-23').length, 1);
+
+  // "Everything" spans from the first recorded day through to the last, with no gaps.
+  const tree = build();
+  const all = stats.allKeys(tree, '2026-09-03');
+  assert.equal(all[0], '2026-09-01');
+  assert.equal(all[all.length - 1], '2026-09-03');
+  assert.equal(all.length, 3);
+});
+
 test('percentile and median behave on small samples', () => {
   assert.equal(stats.median([5, 1, 3]), 3);
   assert.equal(stats.median([4, 1, 3, 2]), 2.5);

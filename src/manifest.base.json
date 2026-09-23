@@ -3,7 +3,7 @@
   "name": "WhileFree: Ask ChatGPT, Claude & Gemini at Once",
   "short_name": "WhileFree",
   "version": "0.1.0",
-  "description": "Type one prompt and send it to ChatGPT, Claude, Gemini, Perplexity and DeepSeek at once, in the tabs you are already signed in to. Free and open source.",
+  "description": "Type one prompt and send it to ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Copilot, Le Chat, Qwen and Kimi at once, in the tabs you are already signed in to. Free and open source.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
@@ -32,6 +32,16 @@
     "https://gemini.google.com/*",
     "https://www.perplexity.ai/*",
     "https://perplexity.ai/*",
-    "https://chat.deepseek.com/*"
+    "https://chat.deepseek.com/*",
+    "https://grok.com/*",
+    "https://www.grok.com/*",
+    "https://copilot.microsoft.com/*",
+    "https://www.copilot.microsoft.com/*",
+    "https://chat.mistral.ai/*",
+    "https://chat.qwen.ai/*",
+    "https://chat.qwenlm.ai/*",
+    "https://kimi.com/*",
+    "https://www.kimi.com/*",
+    "https://kimi.moonshot.cn/*"
   ]
 }

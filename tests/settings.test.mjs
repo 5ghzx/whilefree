@@ -12,9 +12,9 @@ const { settings, sites } = globalThis.WF;
 test('defaults switch every site on: there is no paid tier to hold back', () => {
   const s = settings.normalize({});
   assert.deepEqual(s.enabledSites, sites.ORDER);
-  assert.equal(s.enabledSites.length, 5);
+  assert.ok(s.enabledSites.length >= 10, 'every provider in the registry is enabled');
   assert.equal(s.chimeEnabled, true);
-  assert.equal(s.disableSlowModes.deepseek, true);
+  assert.equal(s.disableSlowModes.deepseek, true, 'the one slow mode we know is on by default');
 });
 
 test('unknown site ids are dropped and an empty selection falls back', () => {
@@ -41,9 +41,17 @@ test('targetsFor never sends back to the AI you started from', () => {
   const s = settings.normalize({});
   const targets = settings.targetsFor(s, 'chatgpt');
   assert.equal(targets.includes('chatgpt'), false);
-  assert.equal(targets.length, 4);
+  assert.equal(targets.length, sites.ORDER.length - 1);
   // From the popup there is no origin, so everything switched on is fair game.
-  assert.equal(settings.targetsFor(s, null).length, 5);
+  assert.equal(settings.targetsFor(s, null).length, sites.ORDER.length);
+});
+
+test('adding a provider in the registry makes it available without a settings edit', () => {
+  // The default is deliberately implicit (null), so a new adapter is not silently
+  // missing from a fresh install until someone remembers to enumerate it here.
+  assert.equal(settings.DEFAULTS.enabledSites, null);
+  const fresh = settings.normalize({});
+  assert.deepEqual(fresh.enabledSites, sites.ORDER);
 });
 
 test('targetsFor respects what the user switched off', () => {

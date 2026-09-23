@@ -174,6 +174,8 @@
         <p class="card-note">Plain text, no prompt or answer content in it.</p>
         <div class="row" style="margin-bottom: 10px">
           <select id="card-range" aria-label="Summary period">
+            <option value="week">this week</option>
+            <option value="month">this month</option>
             <option value="7">last 7 days</option>
             <option value="30">last 30 days</option>
             <option value="all">everything recorded</option>
@@ -192,6 +194,10 @@
           A broadcast goes to every site switched on, and never back to the one you started from.
         </p>
         <div id="sites"></div>
+        <div class="row">
+          <button id="check-all" class="btn-quiet">Check all open AIs</button>
+          <span class="spacer"></span>
+        </div>
         <div id="diagnostics"></div>
       </section>
 
@@ -225,6 +231,16 @@
         <div class="setting toggles" id="behavior-toggles"></div>
 
         <div class="setting">
+          <label>Switch off a slow mode before sending</label>
+          <p class="hint">
+            Only the AIs you pick here get their research or thinking switch turned off. DeepSeek
+            ships on, because it remembers DeepThink between visits and every broadcast would
+            otherwise sit waiting.
+          </p>
+          <div id="slowmode-sites" class="chime-grid" style="margin-top: 8px"></div>
+        </div>
+
+        <div class="setting">
           <label>Chime for which AIs</label>
           <div id="chime-sites" class="chime-grid"></div>
         </div>
@@ -237,12 +253,15 @@
           Everything lives in this browser: no account, no sync, no analytics. Prompts and answers were
           never stored. Import merges by default so nothing you already have is lost.
         </p>
-        <div class="row">
+        <div class="row wrap">
           <button id="export">Export JSON</button>
+          <button id="export-daily">Export CSV (per day)</button>
+          <button id="export-answers">Export CSV (per answer)</button>
           <button id="import">Import JSON</button>
           <button id="wipe" class="danger">Delete everything</button>
           <input type="file" id="import-file" accept="application/json,.json" hidden />
-          <span class="spacer"></span>
+        </div>
+        <div class="row" style="margin-top: 10px">
           <span class="dim" id="data-stats"></span>
         </div>
         <div id="data-note"></div>

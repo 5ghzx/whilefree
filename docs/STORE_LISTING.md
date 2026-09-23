@@ -15,13 +15,13 @@ extension itself is fine.
 | Category | Productivity (Chrome: Tools) |
 | Language | English |
 | Licence | MIT |
-| Homepage / support | https://github.com/whilefree/whilefree |
+| Homepage / support | https://github.com/5ghzx/whilefree |
 
 ## Short description
 
-> Type one prompt and send it to ChatGPT, Claude, Gemini, Perplexity and DeepSeek at once, in the
-> tabs you are already signed in to. Know when each answer lands, and see where your AI time
-> actually goes.
+> Type one prompt and send it to ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Copilot, Le Chat,
+> Qwen and Kimi at once, in the tabs you are already signed in to. Know when each answer lands, and see
+> where your AI time actually goes. Free and open source, with every feature in it.
 
 ## Long description
 
@@ -33,6 +33,10 @@ extension itself is fine.
 > Type your prompt once, in whichever AI you are already using, and press Ask all. The same prompt
 > goes to the others you switched on — each answering in its own tab, in its own account, at roughly
 > the pace a person would type it.
+>
+> **Ten AIs, not five.** ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Copilot, Le Chat, Qwen
+> and Kimi. Switch on the ones you actually use; there is no cap on how many, and no paid tier to unlock
+> the rest.
 >
 > **Then go and do something else.**
 >
@@ -59,6 +63,9 @@ extension itself is fine.
 > $20 a month for an AI you sent two prompts to, it will say so, in those words.
 >
 > **Everything is free.** No trial, no paid tier, no feature gates, no account, no sign-up.
+>
+> **Take your numbers with you.** Export as JSON to move computers, or as CSV for a spreadsheet: one row
+> per day per AI, and one row per timed answer.
 >
 > **Privacy is the design, not a setting.**
 >
@@ -123,6 +130,9 @@ Five, in this order, each 1280×800 (Chrome) or 1280×800 (Firefox):
 3. **Where the time goes.** The three-way split bar plus the per-day stacked chart.
 4. **Is each subscription earning its keep?** The price inputs and the verdict table.
 5. **Your own benchmark.** The head-to-head table plus the heatmap.
+
+If you add a sixth, show ten AI chips in the fan-out so the ten-provider claim is visible without
+reading the description.
 
 Capture them from the built dashboard, not by retyping any other product's artwork. Use your own
 prompts in the screenshots.

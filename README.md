@@ -2,9 +2,9 @@
 
 **Type one prompt. Every AI you use answers it — in its own tab, in your own account.**
 
-WhileFree sends the prompt you just typed in ChatGPT, Claude, Gemini, Perplexity or DeepSeek to
-the others you switch on, then tells you when each answer lands and keeps count of where your
-AI hours actually go.
+WhileFree sends the prompt you just typed in ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok,
+Copilot, Le Chat, Qwen or Kimi to the others you switch on, then tells you when each answer lands and
+keeps count of where your AI hours actually go. Ten AIs, not five — and no cap on how many at once.
 
 Free and open source, with every feature in it. No account, no API keys, no server in the middle,
 no analytics. Nothing is sold, gated, trialled or throttled.
@@ -41,8 +41,22 @@ you were elsewhere, and your longest waits.
 **Your rules.** Only alert me for waits over a minute. Chime for these AIs and not those. Quiet
 hours. Gap between sends. Which AIs a broadcast goes to.
 
-**Yours to keep.** Export everything as JSON, import it on another computer, or delete it all.
-Everything on this list is free. There is no paid tier.
+**Yours to keep.** Export everything as JSON, or as CSV — one row per day per AI, and one row per timed
+answer. Import it on another computer, or delete it all. Everything on this list is free. There is no
+paid tier, no trial, and no licence check anywhere in the code.
+
+## Ten providers
+
+| | |
+| --- | --- |
+| ChatGPT | Claude |
+| Gemini | Perplexity |
+| DeepSeek | Grok |
+| Copilot | Le Chat (Mistral) |
+| Qwen | Kimi |
+
+Adding another is a one-file change: an adapter in `src/lib/sites.js`, plus its host permission. Every
+provider is switched on by default, so a new one is never silently missing.
 
 ## What it deliberately does not do
 
@@ -80,7 +94,7 @@ Full detail: [PRIVACY.md](PRIVACY.md).
 ### From source (unpacked)
 
 ```bash
-git clone https://github.com/whilefree/whilefree.git
+git clone https://github.com/5ghzx/whilefree.git
 cd whilefree
 npm run build          # writes dist/chrome and dist/firefox
 ```
@@ -115,7 +129,7 @@ One source tree, two stores, no bundler.
 ```
 src/
   lib/          shared, dual-mode files (classic script *and* ES module)
-  content/      runs on the five AI sites
+  content/      runs on the ten AI sites
   background/   the worker: queue, tabs, timings
   popup/        the toolbar panel
   dashboard/    the full-page dashboard
@@ -161,6 +175,16 @@ declared, if a selector list drifts out of shape, if a shared file starts using 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions, and
 [docs/STORE_LISTING.md](docs/STORE_LISTING.md) for the store submission material.
+
+## More documentation
+
+- **[docs/FEATURE-PARITY.md](docs/FEATURE-PARITY.md)** — every claim in the product's specification,
+  checked off against what this code actually does, including the gaps.
+- **[docs/SITE-BEHAVIOUR.md](docs/SITE-BEHAVIOUR.md)** — the niche, undocumented per-site behaviours
+  (sticky slow modes, React-controlled textareas, virtualised conversations, `div`-based send buttons)
+  and how each is handled. This is the file to read before fixing a broken site.
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — what to build next, and what deliberately not to build.
+- **[PRIVACY.md](PRIVACY.md)** — the data promises, written so they can be checked against the code.
 
 ## Scope
 

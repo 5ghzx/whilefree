@@ -117,6 +117,26 @@ test('uid values are unique across a burst of calls', () => {
   assert.match([...ids][0], /^job_/);
 });
 
+test('toCsv quotes only what needs quoting, and defuses formulas', () => {
+  const columns = [
+    { key: 'a', label: 'a' },
+    { key: 'b', label: 'b' },
+    { key: 'c', label: 'c' },
+  ];
+  const csv = U.toCsv(columns, [
+    { a: 'plain', b: 'has,comma', c: 'has "quote"' },
+    { a: '=SUM(A1)', b: -5, c: null },
+    { a: '-cmd|calc', b: '@import', c: undefined },
+  ]);
+  const lines = csv.trim().split('\n');
+  assert.equal(lines[0], 'a,b,c');
+  assert.equal(lines[1], 'plain,"has,comma","has ""quote"""');
+  assert.equal(lines[2], "'=SUM(A1),-5,", 'a negative number keeps its sign');
+  assert.equal(lines[3], "'-cmd|calc,'@import,", 'formula-like text is neutralised');
+  assert.ok(csv.endsWith('\n'), 'the file ends with a newline');
+  assert.equal(U.toCsv([{ key: 'x', label: 'x' }], []).trim(), 'x', 'a header with no rows is valid');
+});
+
 test('debounce runs once with the last arguments', async () => {
   let calls = [];
   const fn = U.debounce((value) => calls.push(value), 10);
