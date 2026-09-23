@@ -1,0 +1,60 @@
+name: A site stopped working
+description: One of the five AIs no longer receives the prompt, or its answer is never noticed
+title: '[site] '
+labels: ['site-breakage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the maintainer's favourite kind of report, because the fix is usually one line.
+        The markup check below gives everything needed to find it.
+  - type: dropdown
+    id: site
+    attributes:
+      label: Which AI
+      options:
+        - ChatGPT
+        - Claude
+        - Gemini
+        - Perplexity
+        - DeepSeek
+    validations:
+      required: true
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What happens
+      options:
+        - The prompt is never typed into the box
+        - The prompt is typed but send is never pressed
+        - The prompt sends, but the answer is never marked as finished
+        - The answer finishes too early
+        - A warning appears that should not (signed out / quota / check)
+        - The in-page launcher or panel is missing or in the wrong place
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: Markup check output
+      description: |
+        Open the site → click the WhileFree toolbar icon → **Check this tab's markup** → paste
+        everything that appears.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Browser and extension version
+      placeholder: 'Firefox 128 on Linux, WhileFree 0.1.0'
+    validations:
+      required: true
+  - type: checkboxes
+    id: still-signed-in
+    attributes:
+      label: Before reporting
+      options:
+        - label: I am still signed in to that AI in that tab
+          required: true
+        - label: Reloading the tab does not fix it

@@ -1,0 +1,23 @@
+{
+  "name": "whilefree",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ask ChatGPT, Claude, Gemini, Perplexity and DeepSeek at once. Free, open source, no account, no API keys.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whilefree/whilefree.git"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "verify": "npm run check && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

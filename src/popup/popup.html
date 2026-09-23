@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WhileFree</title>
+    <link rel="stylesheet" href="../assets/theme.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          </svg>
+        </span>
+        <div>
+          <h1 id="app-name">WhileFree</h1>
+          <div class="dim" id="app-version">v0.0.0</div>
+        </div>
+      </div>
+      <span class="spacer"></span>
+      <span class="chip free">free · everything</span>
+    </header>
+
+    <main>
+      <!-- Ask from the popup, without opening any AI first. -->
+      <section class="card" id="ask-card">
+        <div class="card-title">Ask every AI at once</div>
+        <textarea
+          id="prompt"
+          rows="3"
+          placeholder="Type once. Each switched-on AI answers in its own tab."
+          aria-label="Your prompt"
+        ></textarea>
+        <div class="row" style="margin-top: 9px">
+          <span class="dim" id="target-summary">No AI switched on yet.</span>
+          <span class="spacer"></span>
+          <button class="btn-primary" id="send" disabled>Send</button>
+        </div>
+        <div id="send-result" class="empty" hidden></div>
+      </section>
+
+      <!-- Where the answers land. -->
+      <section class="card" id="answers-card" hidden>
+        <div class="row">
+          <div class="card-title" style="margin: 0">Answers ready</div>
+          <span class="badge" id="answers-count">0</span>
+          <span class="spacer"></span>
+          <button class="btn-quiet" id="clear-answers">Clear</button>
+        </div>
+        <div class="dim" id="answers-hint">Click one to go to that tab.</div>
+        <div id="answers"></div>
+      </section>
+
+      <!-- A send in progress. -->
+      <section class="card" id="job-card" hidden>
+        <div class="row">
+          <div class="card-title" style="margin: 0" id="job-title">Sending</div>
+          <span class="spacer"></span>
+          <button class="btn-quiet" id="cancel-job">Stop</button>
+        </div>
+        <div id="job-targets"></div>
+      </section>
+
+      <!-- Today, in three numbers. -->
+      <section class="card" id="today-card">
+        <div class="card-title">Today in AI tabs</div>
+        <div id="today-split"></div>
+        <div id="today-total" class="dim" style="margin-top: 8px">Nothing recorded yet today.</div>
+      </section>
+
+      <!-- Switches. -->
+      <section class="card">
+        <div class="card-title">Send to</div>
+        <div id="sites"></div>
+        <div class="sep"></div>
+        <div class="row">
+          <span>A chime when an answer lands</span>
+          <span class="spacer"></span>
+          <button class="switch" id="chime-switch" role="switch" aria-checked="true" aria-label="Chime"></button>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <span>Open tabs for AIs that are closed</span>
+          <span class="spacer"></span>
+          <button class="switch" id="tabs-switch" role="switch" aria-checked="true" aria-label="Open tabs"></button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <button class="btn-quiet" id="open-dashboard" style="text-align: left">Open the dashboard →</button>
+        </div>
+        <div class="row">
+          <button class="btn-quiet" id="check-tab" style="text-align: left">Check this tab's markup</button>
+        </div>
+        <div class="row">
+          <a class="btn-quiet" id="repo-link" href="#" target="_blank" rel="noreferrer">Source on GitHub ↗</a>
+        </div>
+        <div id="diagnostic" hidden></div>
+      </section>
+
+      <p class="dim privacy">
+        No account, no analytics, no server. Prompts and timings never leave this browser.
+      </p>
+    </main>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

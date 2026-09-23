@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WhileFree dashboard</title>
+    <link rel="stylesheet" href="../assets/theme.css" />
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          </svg>
+        </span>
+        <div>
+          <h1 id="app-name">WhileFree</h1>
+          <div class="dim" id="app-sub">Your AI time, measured.</div>
+        </div>
+      </div>
+
+      <div class="ranges" role="group" aria-label="Date range">
+        <button data-range="7" class="range is-on">7 days</button>
+        <button data-range="30" class="range">30 days</button>
+        <button data-range="90" class="range">90 days</button>
+        <button data-range="all" class="range">All</button>
+      </div>
+
+      <span class="spacer"></span>
+      <span class="chip free" id="free-chip">every feature, free</span>
+      <a class="btn-quiet" id="repo-link" href="#" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </header>
+
+    <main class="wrap">
+      <div id="welcome" class="card welcome" hidden>
+        <h2>You are set up.</h2>
+        <p class="muted">
+          Open ChatGPT, Claude, Gemini, Perplexity or DeepSeek, type a prompt, and press
+          <strong>Ask all</strong> in the small launcher at the bottom right of the page. The same prompt
+          goes to the others you switched on, in the tabs you are already signed in to.
+        </p>
+        <p class="muted">
+          Signature yourself into each AI once. This extension never sees a password, never solves a
+          check, and never works around a usage limit — when a site is unhappy it says so and stops.
+        </p>
+        <button class="btn-primary" id="welcome-done">Got it, hide this</button>
+      </div>
+
+      <!-- 1. Where the time goes ------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Where your AI time goes</div>
+        <p class="card-note">
+          Every minute in an AI tab is one of three things: writing a prompt, waiting for the answer, or
+          reading it. Timed from page events, never from what you type.
+        </p>
+        <div id="split"></div>
+        <div class="triple" id="split-triple"></div>
+        <div id="split-note"></div>
+      </section>
+
+      <!-- 2. Waiting by day ------------------------------------------------ -->
+      <section class="card">
+        <div class="row">
+          <div>
+            <div class="card-title">Day by day</div>
+            <p class="card-note" style="margin: 0">Colour shows which AI. Switch the measure below.</p>
+          </div>
+          <span class="spacer"></span>
+          <select id="metric" aria-label="Measure">
+            <option value="waiting">waiting time</option>
+            <option value="use">time in use</option>
+            <option value="prompts">prompts sent</option>
+          </select>
+        </div>
+        <canvas id="bars" height="220" role="img" aria-label="Daily totals per AI"></canvas>
+        <div class="legend" id="bars-legend"></div>
+      </section>
+
+      <!-- 3. Per AI ------------------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Each AI</div>
+        <p class="card-note">Time in use is writing plus waiting plus reading.</p>
+        <div class="table-scroll">
+          <table id="per-site">
+            <thead>
+              <tr>
+                <th>AI</th>
+                <th>Time in use</th>
+                <th>Prompts</th>
+                <th>Answers</th>
+                <th>Waiting</th>
+                <th>Med. answer</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 4. Head to head -------------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Head to head</div>
+        <p class="card-note">
+          Which AI is actually faster <em>for you</em>. "Fastest on shared prompts" counts only the
+          prompts you sent to several AIs at once, and only cleanly measured answers.
+        </p>
+        <div class="table-scroll">
+          <table id="head-to-head">
+            <thead>
+              <tr>
+                <th>AI</th>
+                <th>First words after</th>
+                <th>Typical answer</th>
+                <th>Slowest 1 in 10</th>
+                <th>Fastest on shared prompts</th>
+                <th>Switched away</th>
+                <th>Follow-ups</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="head-note"></div>
+      </section>
+
+      <!-- 5. Cost ---------------------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Is each subscription earning its keep?</div>
+        <p class="card-note">
+          Type what you pay per month. Costs are worked out from your real use over the range selected
+          above, and these prices never leave this computer.
+        </p>
+        <div class="price-row" id="prices"></div>
+        <div id="cost-note"></div>
+        <div class="table-scroll">
+          <table id="costs">
+            <thead>
+              <tr>
+                <th>AI</th>
+                <th>You pay / month</th>
+                <th>Prompts</th>
+                <th>Time in use</th>
+                <th>Cost per prompt</th>
+                <th>Cost per hour of use</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 6. Attention detail ---------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Attention detail</div>
+        <p class="card-note">How much of the waiting you actually watched, and the ones that hurt.</p>
+        <div class="triple" id="attention"></div>
+        <div id="longest"></div>
+      </section>
+
+      <!-- 7. When you use AI ---------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">When you wait for AI</div>
+        <p class="card-note">Hour of day across the week, all time. Darker means more waiting.</p>
+        <canvas id="heat" height="200" role="img" aria-label="Waiting by weekday and hour"></canvas>
+      </section>
+
+      <!-- 8. Shareable summary -------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Share a summary</div>
+        <p class="card-note">Plain text, no prompt or answer content in it.</p>
+        <div class="row" style="margin-bottom: 10px">
+          <select id="card-range" aria-label="Summary period">
+            <option value="7">last 7 days</option>
+            <option value="30">last 30 days</option>
+            <option value="all">everything recorded</option>
+          </select>
+          <span class="spacer"></span>
+          <button id="copy-card">Copy</button>
+          <button id="download-card">Download .txt</button>
+        </div>
+        <pre class="summary" id="summary"></pre>
+      </section>
+
+      <!-- 9. Sites --------------------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Sites</div>
+        <p class="card-note">
+          A broadcast goes to every site switched on, and never back to the one you started from.
+        </p>
+        <div id="sites"></div>
+        <div id="diagnostics"></div>
+      </section>
+
+      <!-- 10. Settings ----------------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">How it behaves</div>
+
+        <div class="setting">
+          <label for="pace-min">Gap between AIs</label>
+          <div class="row">
+            <input id="pace-min" type="number" min="150" max="5000" step="50" style="width: 84px" />
+            <span class="dim">to</span>
+            <input id="pace-max" type="number" min="150" max="5000" step="50" style="width: 84px" />
+            <span class="dim">ms</span>
+          </div>
+          <p class="hint">Sends are spaced out so several sites do not see a burst at once.</p>
+        </div>
+
+        <div class="setting">
+          <label for="notify-wait">Only tell me about long waits</label>
+          <select id="notify-wait">
+            <option value="0">any answer</option>
+            <option value="30000">over 30 seconds</option>
+            <option value="60000">over a minute</option>
+            <option value="120000">over two minutes</option>
+            <option value="300000">over five minutes</option>
+          </select>
+          <p class="hint">Applies to the chime and to system notifications.</p>
+        </div>
+
+        <div class="setting toggles" id="behavior-toggles"></div>
+
+        <div class="setting">
+          <label>Chime for which AIs</label>
+          <div id="chime-sites" class="chime-grid"></div>
+        </div>
+      </section>
+
+      <!-- 11. Data --------------------------------------------------------- -->
+      <section class="card">
+        <div class="card-title">Your data</div>
+        <p class="card-note">
+          Everything lives in this browser: no account, no sync, no analytics. Prompts and answers were
+          never stored. Import merges by default so nothing you already have is lost.
+        </p>
+        <div class="row">
+          <button id="export">Export JSON</button>
+          <button id="import">Import JSON</button>
+          <button id="wipe" class="danger">Delete everything</button>
+          <input type="file" id="import-file" accept="application/json,.json" hidden />
+          <span class="spacer"></span>
+          <span class="dim" id="data-stats"></span>
+        </div>
+        <div id="data-note"></div>
+      </section>
+
+      <p class="foot dim" id="foot"></p>
+    </main>
+
+    <script type="module" src="dashboard.js"></script>
+  </body>
+</html>

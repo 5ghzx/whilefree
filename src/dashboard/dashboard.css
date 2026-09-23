@@ -1,0 +1,225 @@
+body {
+  padding-bottom: 40px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: rgba(14, 14, 16, 0.92);
+  backdrop-filter: blur(10px);
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--accent);
+}
+
+.mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+h1 {
+  font-size: 15px;
+}
+
+#app-sub {
+  font-size: 12px;
+}
+
+.ranges {
+  display: flex;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.ranges .range {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-2);
+  padding: 6px 11px;
+  font-size: 12.5px;
+}
+
+.ranges .range + .range {
+  border-left: 1px solid var(--line);
+}
+
+.ranges .range.is-on {
+  background: var(--panel-2);
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.chip.free {
+  color: var(--accent-2);
+  border-color: rgba(232, 163, 61, 0.32);
+  background: rgba(232, 163, 61, 0.08);
+  padding: 3px 10px;
+}
+
+.wrap {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: 20px 22px 0;
+}
+
+.welcome {
+  border-color: rgba(232, 163, 61, 0.35);
+  background: linear-gradient(180deg, rgba(232, 163, 61, 0.08), rgba(232, 163, 61, 0.02));
+}
+
+.welcome h2 {
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.welcome p {
+  font-size: 13px;
+  margin: 0 0 10px;
+  max-width: 62ch;
+}
+
+#metric,
+#notify-wait,
+#card-range {
+  width: auto;
+  padding: 6px 9px;
+  font-size: 12.5px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.summary {
+  background: #101013;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.price-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-bottom: 14px;
+}
+
+.price-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.setting {
+  padding: 11px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.setting:first-of-type {
+  border-top: 0;
+}
+
+.setting > label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 7px;
+  font-size: 12.5px;
+}
+
+.setting .hint {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  margin: 6px 0 0;
+}
+
+.setting.toggles .row {
+  padding: 6px 0;
+}
+
+.chime-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chime-grid .chip {
+  cursor: pointer;
+  user-select: none;
+}
+
+.chime-grid .chip[data-off="1"] {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+button.danger {
+  border-color: rgba(210, 105, 95, 0.5);
+  color: #e9a29a;
+}
+
+button.danger:hover {
+  background: rgba(210, 105, 95, 0.14);
+}
+
+.site-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.site-row:first-child {
+  border-top: 0;
+}
+
+.site-row .name {
+  font-weight: 600;
+}
+
+.site-row .state {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.site-row .state.warn {
+  color: var(--waiting);
+}
+
+.foot {
+  font-size: 12px;
+  margin: 22px 0 0;
+  text-align: center;
+}
+
+.verdict-dot {
+  margin-right: 5px;
+}
