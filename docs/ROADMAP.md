@@ -7,6 +7,10 @@ Two constraints hold throughout. **No server** — anything that needs a backend
 promise is the product. And **no stored prompt or answer text** — which several of the best ideas below
 have to be designed *around* rather than ignored. Where an idea needs a carve-out, it says so.
 
+Several of the entries below are now informed by a read of the published WhileAI bundle; the facts that
+came out of it, and where we already acted on them, are in
+[UPSTREAM-FINDINGS.md](UPSTREAM-FINDINGS.md).
+
 ---
 
 ## Tier 1 — small, obviously worth it
@@ -37,7 +41,7 @@ number.
 
 **6. Auto-rebroadcast the follow-up.** When you send a second prompt in the origin tab mid-conversation,
 offer to send it to the same group. This is the most-requested pattern in multi-AI workflows and it is
-mostly plumbing on top of the existing group/queue model.
+mostly plumbing on top of the existing job-group model.
 
 **7. A real side-by-side compare view.** *(Design carefully.)* One page showing all N answers as live
 panes squeezed next to each other, so you compare without tab-hopping. Reads answer **text** on screen
@@ -58,10 +62,18 @@ broadcasts an hour the chime is noise.
 notification with the week's split, the winner on shared prompts, and the subscription verdict. We have
 every number already; it is one cron-ish alarm.
 
-**11. Prompt-length ↔ latency correlation.** "Long prompts cost 3× the wait on Gemini but 1.2× on
+**11. Network-level completion detection.** The largest accuracy gap we know of. Four of the five big
+sites expose no reliable "still streaming" element, and WhileAI instead observes the conversation
+endpoints themselves (`/backend-api/conversation`, `/completion`, `/StreamGenerate`,
+`/rest/sse/perplexity_ask`, `/api/v0/chat/completion`) from a page-world script. That is where their
+sub-second time-to-first-token comes from, and it is why their answer timings hold when a DOM heuristic
+guesses wrong. Our detector is DOM-only today. See fact 1 in
+[UPSTREAM-FINDINGS.md](UPSTREAM-FINDINGS.md).
+
+**12. Prompt-length ↔ latency correlation.** "Long prompts cost 3× the wait on Gemini but 1.2× on
 ChatGPT." Cheap from data we already hold, and it changes behaviour rather than just describing it.
 
-**12. Insight nudges with teeth.** "Perplexity cost you $41 this quarter for 6 prompts — its cost per
+**13. Insight nudges with teeth.** "Perplexity cost you $41 this quarter for 6 prompts — its cost per
 prompt is 12× the median." The cost table reports; this would decide. A monthly "worth cancelling?" card,
 with the numbers that answer it.
 
@@ -69,33 +81,41 @@ with the numbers that answer it.
 
 ## Tier 3 — ambitious, and the interesting ones
 
-**13. Answer-consensus scoring.** *(Carve-out.)* Send a prompt to five, then ask a sixth to compare them.
+**14. Answer-consensus scoring.** *(Carve-out.)* Send a prompt to five, then ask a sixth to compare them.
 Doing that requires reading the answers, which breaks the promise on its face — *unless* it runs in a
 "one-shot, in-memory" mode where the comparison happens inside your browser with no storage and no
 network traffic beyond the AI you already chose to ask. Worth building only with a very loud UI
 explanation of the exception. Highest value-to-risk ratio of anything on this list.
 
-**14. Local-only history of *your* prompts.** *(Carve-out.)* A prompt library with variables, so a
+**15. Local-only history of *your* prompts.** *(Carve-out.)* A prompt library with variables, so a
 recurring question is one keystroke. This means storing prompt text, the one thing the extension currently
 promises never to keep. Defensible if it is opt-in, clearly labelled, and excluded from export by default
 — but it is a product decision, not a technical one, and the privacy policy has to change first.
 
-**15. A real benchmark mode.** Run the same prompt N times across M AIs, on a schedule, and build a
+**16. A real benchmark mode.** Run the same prompt N times across M AIs, on a schedule, and build a
 statistically honest comparison with confidence intervals instead of medians of small samples. Turns the
 head-to-head table from a curiosity into a benchmark. Also makes "is Gemini unusually slow *today*"
 answerable, which is a monitoring product hiding inside a convenience one.
 
-**16. Self-healing adapters.** Ship the heuristic layer *configurable*: let a user point at a page, click
-the box and the send button once, and have the extension learn a selector override for that site,
-stored locally and exportable so fixes can be shared as small JSON files. This converts the project's
-single biggest maintenance liability into a distributed fix.
+**17. Repairing a site that broke.** When a site redesigns, our selector list stops matching and the user
+sees it first. Give them somewhere to act: per-site selector overrides, typed or picked by pointing at the
+page once, stored locally, exportable as small JSON so a fix can be shared in an issue instead of
+waiting for a release. `docs/SITE-BEHAVIOUR.md` plus the built-in *Diagnose* report already names which probe
+failed, so this is the missing half of a diagnostic we ship today.
 
-**17. Opt-in cross-device sync.** `browser.storage.sync` for settings and rollups only — never events,
+*Dropped: user-defined providers.* Letting a user add a site we do not ship — a name, a host pattern and
+a set of selectors — was the same mechanism generalised, and it is now off the list. Ten maintained
+adapters, each verified against a live page, are what makes the *Diagnose* report and the timing
+reliable; a provider nobody has tested has neither, and its failures arrive as bug reports about this
+extension rather than about the site. Anyone who needs a site we do not ship can add it in
+`src/lib/sites.js` in a few lines — the registry is data, and the file is short.
+
+**18. Opt-in cross-device sync.** `browser.storage.sync` for settings and rollups only — never events,
 never prompts. The privacy policy gets one sentence longer and a laptop/desktop user stops re-entering
 their subscription prices. Deliberately last on this list: "your data never leaves your browser" is
 cleaner to say than "except the small sync blob".
 
-**18. Firefox-and-Chrome parity test rig.** Automate the verification routine in
+**19. Firefox-and-Chrome parity test rig.** Automate the verification routine in
 [SITE-BEHAVIOUR.md](SITE-BEHAVIOUR.md) with Playwright against saved HTML snapshots of each site's
 composer, run in CI. Then a selector regression fails the build instead of waiting for a user to notice.
 Boring, and it is the thing that would make the whole project sustainable.

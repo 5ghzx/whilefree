@@ -144,6 +144,28 @@
     return { ...state.deltas, ...state.pendingCounts };
   }
 
+  /**
+   * Run the ticker only while this tab is the one being looked at.
+   *
+   * `tick()` has always returned early when the tab is hidden or unfocused — a minute in
+   * an AI tab is only ever counted when you are in it — so running the interval on a
+   * background tab was pure waste: a timer waking up once a second, on ten tabs, to
+   * decide to do nothing. Stopping it costs nothing, because focus and visibility are
+   * exactly the two events that make the answer change, and both are cheap to listen
+   * for. A background AI tab now costs no CPU at all.
+   */
+  function startTicking() {
+    if (state.timer || !state.started) return;
+    state.lastTick = Date.now();
+    state.timer = setInterval(tick, TICK_MS);
+  }
+
+  function stopTicking() {
+    if (!state.timer) return;
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+
   function attach(document_, site_, settings_) {
     doc = document_;
     site = site_;
@@ -152,18 +174,32 @@
     state.started = true;
     state.lastTick = Date.now();
 
-    // Capture phase so a site's own stopPropagation cannot hide the truth.
+    // Capture phase so a site's own stopPropagation cannot hide the truth. Three input
+    // events would be one more listener than the truth needs: `keydown` catches the
+    // first character, `input` catches everything after it.
     doc.addEventListener('keydown', onTyping, true);
     doc.addEventListener('input', onTyping, true);
-    doc.addEventListener('beforeinput', onTyping, true);
 
-    state.timer = setInterval(tick, TICK_MS);
+    if (focused()) startTicking();
     state.flushTimer = setInterval(flush, FLUSH_MS);
 
-    doc.addEventListener('visibilitychange', () => {
-      if (doc.hidden) flush();
+    globalThis.addEventListener('focus', startTicking);
+    globalThis.addEventListener('blur', () => {
+      flush();
+      stopTicking();
     });
-    globalThis.addEventListener('pagehide', flush);
+    doc.addEventListener('visibilitychange', () => {
+      if (doc.hidden) {
+        flush();
+        stopTicking();
+      } else if (focused()) {
+        startTicking();
+      }
+    });
+    globalThis.addEventListener('pagehide', () => {
+      flush();
+      stopTicking();
+    });
   }
 
   /**
@@ -177,22 +213,33 @@
     const input = WF.dom.findComposer(doc, site);
     if (!input) return null;
     // Read the box at trigger time: the site's own handler has not run yet because
-    // we listen in the capture phase, so the prompt is still in there.
+    // we listen in the capture phase, so the prompt is still in there. This is also
+    // the only moment the text exists — the site clears the box a tick later, and
+    // what the user typed is never read again after this.
+    const at = Date.now();
+    const prompt = WF.dom.composerText(input);
     const before = content.composer.sendEvidence(doc, site, input);
-    if (WF.dom.normalize(WF.dom.composerText(input)) === '') return null;
-    if (Date.now() < state.programmaticUntil) return null; // that was our own send
+    if (WF.dom.normalize(prompt) === '') return null;
+    if (at < state.programmaticUntil) return null; // that was our own send
     if (state.inFlight) return null; // already timing something here
 
     const confirmed = await content.composer.confirmStarted(doc, site, input, before, 4000);
     if (!confirmed.started) return null;
     const jobId = WF.util.uid('user');
-    return { jobId, sentAt: Date.now(), via: trigger };
+    return {
+      jobId,
+      sentAt: at,
+      via: trigger,
+      prompt,
+      // An identity, not the text: this is what lets a fan-out recognise its own echo
+      // and a retry recognise that it already landed.
+      hash: WF.util.fingerprint(prompt),
+    };
   }
 
   function detach() {
-    if (state.timer) clearInterval(state.timer);
+    stopTicking();
     if (state.flushTimer) clearInterval(state.flushTimer);
-    state.timer = null;
     state.flushTimer = null;
     state.started = false;
   }

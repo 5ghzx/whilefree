@@ -124,6 +124,68 @@ h1 {
   color: var(--bad);
 }
 
+.target .btn-quiet.tiny {
+  margin-left: 2px;
+}
+
+.btn-quiet.tiny {
+  font-size: 11.5px;
+  padding: 3px 8px;
+}
+
+.queued {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.queued:first-child {
+  border-top: 0;
+}
+
+.queued .what {
+  font-size: 12.5px;
+  word-break: break-word;
+}
+
+.queued .meta {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.queued .buttons {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.queued .buttons button:disabled {
+  opacity: 0.35;
+}
+
+.queued.editing {
+  flex-direction: column;
+}
+
+.queued .edit {
+  width: 100%;
+}
+
+.queued.editing .buttons {
+  margin-left: 0;
+  align-self: flex-end;
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+
 .privacy {
   font-size: 11.5px;
   text-align: center;

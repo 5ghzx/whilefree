@@ -56,6 +56,9 @@ function chromeManifest(base, files) {
   return {
     ...base,
     minimum_chrome_version: '110',
+    // Chrome-only: the offscreen document that plays the answer chime. Firefox has no
+    // such API, so it is not declared there, and offscreen/ is stripped from that build.
+    permissions: [...(base.permissions || []), 'offscreen'],
     background: {
       service_worker: 'background/entry.chrome.js',
       type: 'module',
@@ -112,6 +115,8 @@ async function buildOne(target, base, files) {
   // service worker the manifest points at.
   if (target === 'firefox') {
     await rm(path.join(outDir, 'background', 'entry.chrome.js'), { force: true });
+    // No offscreen API, so the chime document would be dead weight in the package.
+    await rm(path.join(outDir, 'offscreen'), { recursive: true, force: true });
   }
 
   const manifest = target === 'chrome' ? chromeManifest(base, files) : firefoxManifest(base, files);

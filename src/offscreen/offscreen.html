@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  Offscreen document: exists only to play the answer-ready chime.
+
+  A service worker has no audio output, and synthesising the tone inside an AI tab
+  only works while that tab is in front — which is exactly the moment you are not
+  waiting for an answer. Chrome's supported answer is an offscreen document with the
+  AUDIO_PLAYBACK reason. It is created on demand and closed a few seconds later, so it
+  costs nothing while idle.
+
+  Firefox has no offscreen API, so this file is stripped from the Firefox build and the
+  chime falls back to the tone played inside an AI tab.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WhileFree audio</title>
+  </head>
+  <body>
+    <script src="offscreen.js"></script>
+  </body>
+</html>

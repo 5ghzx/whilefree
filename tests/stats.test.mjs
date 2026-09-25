@@ -146,6 +146,48 @@ test('head to head only counts the prompts sent to several AIs at once', () => {
   assert.equal(byId.claude.firstWordMedian, 3000);
 });
 
+test('model rows split one AI into the models it was actually run on', () => {
+  const events = [
+    // Same site, two models: the question a site-level table cannot answer.
+    { id: 'a1', siteId: 'gemini', model: 'Flash', sentAt: T, firstWordAt: T + 1000, doneAt: T + 3000 },
+    { id: 'a2', siteId: 'gemini', model: 'Flash', sentAt: T + 10000, firstWordAt: T + 11000, doneAt: T + 14000 },
+    { id: 'a3', siteId: 'gemini', model: 'Pro', sentAt: T + 20000, firstWordAt: T + 29000, doneAt: T + 44000 },
+    // No label on the page: honest, not guessed.
+    { id: 'b1', siteId: 'chatgpt', sentAt: T + 30000, firstWordAt: T + 31000, doneAt: T + 33000 },
+    // Sent but never finished: counts as sent, never as measured. It still gets a row,
+    // so a slow model cannot hide by never completing.
+    { id: 'b2', siteId: 'chatgpt', sentAt: T + 40000, aborted: true },
+    { id: 'c1', siteId: 'claude', model: 'Sonnet 5', sentAt: T + 50000, aborted: true },
+  ];
+  const rows = stats.modelRows(events);
+  const byKey = Object.fromEntries(rows.map((row) => [`${row.siteId}:${row.model}`, row]));
+
+  assert.equal(rows.length, 4);
+  assert.equal(byKey['gemini:Flash'].sent, 2);
+  assert.equal(byKey['gemini:Flash'].measured, 2);
+  assert.equal(byKey['gemini:Flash'].answerMedian, 3500);
+  assert.equal(byKey['gemini:Pro'].answerMedian, 24000);
+  assert.equal(byKey['gemini:Pro'].firstWordMedian, 9000);
+  // An unlabelled answer is one row called unknown rather than being attributed to a model.
+  assert.equal(byKey['chatgpt:unknown'].sent, 2);
+  assert.equal(byKey['chatgpt:unknown'].measured, 1);
+  assert.equal(byKey['chatgpt:unknown'].measuredPct, 50);
+  assert.equal(byKey['claude:Sonnet 5'].measured, 0);
+
+  // Fastest typical answer first — a row with nothing measured has nothing to rank on,
+  // so it sinks to the bottom rather than being shown as instant.
+  assert.deepEqual(
+    rows.map((row) => row.answerMedian),
+    [3000, 3500, 24000, null]
+  );
+  assert.equal(rows[rows.length - 1].model, 'Sonnet 5');
+});
+
+test('model rows ignore events with no site, and are empty when nothing was measured', () => {
+  assert.deepEqual(stats.modelRows([]), []);
+  assert.deepEqual(stats.modelRows([{ id: 'x', sentAt: T }]), []);
+});
+
 test('head to head marks answers that arrived after the user left', () => {
   const events = [
     { id: 'a', group: 'g', siteId: 'chatgpt', sentAt: T, doneAt: T + 1000, abandoned: true },

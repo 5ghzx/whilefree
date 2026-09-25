@@ -24,7 +24,7 @@
     "page": "dashboard/dashboard.html",
     "open_in_tab": true
   },
-  "permissions": ["storage", "scripting", "notifications"],
+  "permissions": ["storage", "scripting", "notifications", "contextMenus"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -40,6 +40,8 @@
     "https://chat.mistral.ai/*",
     "https://chat.qwen.ai/*",
     "https://chat.qwenlm.ai/*",
+    "https://kimi.ai/*",
+    "https://www.kimi.ai/*",
     "https://kimi.com/*",
     "https://www.kimi.com/*",
     "https://kimi.moonshot.cn/*"

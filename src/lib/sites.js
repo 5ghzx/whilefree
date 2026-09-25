@@ -355,13 +355,28 @@
       newChatUrl: 'https://chat.qwen.ai/',
       input: {
         kind: 'auto',
-        selectors: ['textarea#chat-input', 'textarea[placeholder]', 'div[contenteditable="true"]', 'textarea'],
+        // Read off chat.qwen.ai: the box is `textarea.message-input-textarea`, placeholder "Ask
+        // Qwen", with no id — the `#chat-input` this used to look for first is not there, so
+        // every read went through the `textarea[placeholder]` fallback and nothing guaranteed
+        // it was the composer rather than some other box on the page.
+        selectors: [
+          'textarea.message-input-textarea',
+          'textarea#chat-input',
+          'textarea[placeholder]',
+          'div[contenteditable="true"]',
+          'textarea',
+        ],
       },
       send: {
         mode: 'enter',
+        // The control is `button.send-button` with `aria-label="Send"`, and it is disabled until
+        // there is something in the box. Enter is still the press that goes out first — it is
+        // what the page is built around — and this stays the retry for when Enter is swallowed.
         selectors: [
+          'button.send-button',
           'button#send-message-button',
           'div[role="button"][aria-label*="send" i]',
+          'button[aria-label*="send" i]',
           'button[type="submit"]',
         ],
       },
@@ -369,7 +384,15 @@
         selectors: ['button[id*="stop" i]', 'div[role="button"][aria-label*="stop" i]', 'button[aria-label*="Stop" i]'],
       },
       answer: {
-        selectors: ['.markdown-content', 'div[class*="response-message"]', 'div[class*="markdown"]'],
+        // `.qwen-chat-message-assistant` is the turn itself; the `response-message` wrappers
+        // around it are what the old list matched, which meant every reply was counted three
+        // times over — and the one that mattered, the answer, was never named.
+        selectors: [
+          'div.qwen-chat-message-assistant',
+          '.markdown-content',
+          'div[class*="response-message"]',
+          'div[class*="markdown"]',
+        ],
       },
       login: {
         selectors: ['a[href*="/auth"]', 'button[class*="login"]', 'a[href*="login"]'],
@@ -384,9 +407,18 @@
       name: 'Kimi',
       monogram: 'K',
       color: '#1d4ed8',
-      hosts: ['kimi.com', 'www.kimi.com', 'kimi.moonshot.cn'],
-      matchPatterns: ['https://kimi.com/*', 'https://www.kimi.com/*', 'https://kimi.moonshot.cn/*'],
-      newChatUrl: 'https://www.kimi.com/',
+      // Kimi moved to kimi.ai; the old addresses stay here because a tab that was opened before
+      // the rebrand is still this site, and a tab on an address we no longer claim stops answering
+      // us without ever looking broken on screen.
+      hosts: ['kimi.ai', 'www.kimi.ai', 'kimi.com', 'www.kimi.com', 'kimi.moonshot.cn'],
+      matchPatterns: [
+        'https://kimi.ai/*',
+        'https://www.kimi.ai/*',
+        'https://kimi.com/*',
+        'https://www.kimi.com/*',
+        'https://kimi.moonshot.cn/*',
+      ],
+      newChatUrl: 'https://www.kimi.ai/',
       input: {
         kind: 'auto',
         selectors: [
@@ -461,6 +493,26 @@
       .flatMap((site) => site.matchPatterns);
   }
 
+  /**
+   * The words a site puts on its own sign-in door.
+   *
+   * A visible "Log in" or "Sign in" button is the most reliable evidence that a page has
+   * no session, and it is the reason this has to be checked even when a message box is
+   * there: ChatGPT and Gemini both let you chat anonymously, so the presence of a composer
+   * proves nothing at all. Their markup gives nothing else away — the logged-out ChatGPT
+   * page has seven `/auth/login` links and **not one of them is visible** — so the text on
+   * the button is the whole signal. One list, because the door says the same thing on every
+   * one of them.
+   */
+  const SIGN_IN_WORDS = [
+    /^(log|sign) ?in$/i,
+    /^sign ?up( for free)?$/i,
+    // "Log in to get answers", "Sign in to Copilot": the site says what is waiting inside.
+    /^(log|sign) ?in to .+/i,
+    // Federated doors, which is the whole of Copilot's front page: "Sign in with Microsoft".
+    /^(log|sign) ?in with .+/i,
+  ];
+
   /** Client-side strings that mean "this site wants a human" (never auto-solved). */
   const ATTENTION_PATTERNS = {
     quota: [
@@ -530,10 +582,113 @@
     // here would silently click toggles the user never chose, on sites where a
     // "research" switch is something people genuinely want on.
     const wanted = !!(settings && settings.disableSlowModes && settings.disableSlowModes[site.id] === true);
-    if (!wanted || !site.togglesOff || !site.togglesOff.length) return;
+    if (!wanted) return;
+    // By selected state first: it survives a translated UI, and it is the only signal
+    // DeepSeek gives that DeepThink is on.
+    await resetModes(ctx.doc, site);
+    if (!site.togglesOff || !site.togglesOff.length) return;
     for (const toggle of site.togglesOff) {
       await QUIRKS.toggleOff(ctx, toggle);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-site facts that only some sites need
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The conversation endpoints. Watching these is how an answer's *real* timing is
+   * known: a DOM that has stopped changing might just be a slow token, but a network
+   * request that has ended has ended. Entries are regexes matched against resource
+   * URLs; a site with none falls back to the generic rule in content/netwatch.js.
+   */
+  const ENDPOINTS = {
+    chatgpt: [/\/backend-(api|alt)\/(f\/)?conversation/],
+    claude: [/\/completion(\?|$)/, /\/retry_completion(\?|$)/],
+    gemini: [/\/StreamGenerate/, /\/BardChatUi/],
+    perplexity: [/\/rest\/sse\/perplexity_ask/],
+    deepseek: [/\/api\/v0\/chat\/completion/],
+  };
+
+  /**
+   * Where each site states which model is answering. Read for its own sake — the
+   * label is a fact about the answer, not the answer — and it is what lets the
+   * dashboard split the numbers by model instead of by site.
+   */
+  const MODEL_SELECTORS = {
+    chatgpt: [
+      '[data-testid="model-switcher-dropdown-button"]',
+      'button[aria-label*="model" i]',
+    ],
+    claude: ['[data-testid="model-selector-dropdown"]', 'button[data-testid="model-selector"]'],
+    gemini: ['button[aria-label*="model" i]', '.gds-mode-switch-button'],
+    perplexity: ['[data-testid="model-selector"]', 'button[aria-label*="model" i]'],
+    deepseek: ['.ds-model-selector', 'button[aria-label*="model" i]'],
+  };
+
+  /**
+   * Where your own prompt shows up once the site has accepted it. Used for one thing:
+   * confirming that a prompt is in the conversation, so a retry can tell "that send
+   * failed" from "that send worked and you would now have two of them".
+   */
+  const USER_MESSAGES = {
+    chatgpt: ['[data-message-author-role="user"]'],
+    claude: ['[data-testid="user-message"]'],
+    gemini: ['.query-text-line', 'user-query', '.query-text'],
+    perplexity: ['.whitespace-pre-line', '[class*="user-bubble"]'],
+    deepseek: ['.ds-message'],
+  };
+
+  /**
+   * A slow mode that the site leaves switched on and remembers between visits. The
+   * difference from `togglesOff` is that these are found by their selected state
+   * rather than by their label, which does not break when the site is translated.
+   * DeepSeek is the one site where this is on by default, because DeepThink and
+   * Search change both the cost and the answer.
+   */
+  const MODE_RESET_SELECTORS = {
+    deepseek: ['.ds-toggle-button.ds-toggle-button--selected'],
+  };
+
+  for (const [siteId, site] of Object.entries(SITES)) {
+    site.endpointPatterns = ENDPOINTS[siteId] || [];
+    site.modelSelectors = MODEL_SELECTORS[siteId] || [];
+    site.userMessageSelectors = USER_MESSAGES[siteId] || [];
+    site.modeResetSelectors = MODE_RESET_SELECTORS[siteId] || [];
+  }
+
+  /**
+   * Switch off a slow mode that is currently on, found by its selected state. Returns
+   * how many toggles were clicked, so the caller can report what it did.
+   */
+  async function resetModes(doc, site) {
+    const selectors = site.modeResetSelectors || [];
+    if (!selectors.length) return 0;
+    let clicked = 0;
+    for (const selector of selectors) {
+      let nodes = [];
+      try {
+        nodes = [...doc.querySelectorAll(selector)];
+      } catch (err) {
+        continue;
+      }
+      for (const node of nodes) {
+        try {
+          node.click();
+          clicked += 1;
+          await WF.util.sleep(160);
+        } catch (err) {
+          /* the toggle went away mid-click */
+        }
+      }
+    }
+    return clicked;
+  }
+
+  /** Is this URL one of the site's conversation endpoints? */
+  function isEndpoint(site, url) {
+    const patterns = (site && site.endpointPatterns) || [];
+    return patterns.some((pattern) => pattern.test(String(url || '')));
   }
 
   WF.sites = {
@@ -544,7 +699,10 @@
     fromUrl,
     matchPatterns,
     applyQuirks,
+    resetModes,
+    isEndpoint,
     ATTENTION_PATTERNS,
+    SIGN_IN_WORDS,
     COMPOSER_BLOCKLIST,
   };
 })();

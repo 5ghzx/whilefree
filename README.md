@@ -14,8 +14,30 @@ no analytics. Nothing is sold, gated, trialled or throttled.
 ## What it does
 
 **Ask once, get several answers.** Type in whichever AI you are already in and press *Ask all*.
-The same prompt goes to the others you switched on, at roughly the pace a person would type it.
-Each one answers in its own tab, in your own account, in its standard mode.
+The same prompt goes to every AI you switched on — the one you are looking at included — all at
+once. Each one answers in its own tab, in your own account, in its standard mode. The tabs it has
+to open go into one window of their own, behind the one you are working in, so a fan-out never
+lands on top of what you were doing — and because they are in one window, closing it once the
+answers are in takes all of them with it.
+
+**One switch, if you want one.** The popup opens with the master switch at the top of the *Send to*
+card, and it is the feature itself rather than a shortcut for the switches below it. Off means nothing
+is sent anywhere — *Send*, the right-click menu, and a prompt typed into an AI's own page all stop —
+and the AIs you picked stay picked, so turning it back on asks exactly the AIs it asked before. The
+per-AI switches underneath work the way they always did, and **Only send to AIs that say they are
+signed in** puts the careful behaviour below back for anyone who prefers it.
+
+**Switching one on checks it first.** With that switch on, pressing an AI's own switch opens its tab
+and asks the page whether it is signed in. Only a yes puts it on the list, so a prompt never
+disappears into a signed-out tab and comes back as "no answer", which is the one failure that reads
+as a bug here rather than as a tab that needs you. A check is not a licence to stop looking either:
+the page is asked again a moment before a prompt is typed into it — and once more before that, because
+a page that is still loading has signed-out chrome on screen for as long as its session takes to
+arrive. A session that really has ended is caught at the moment it matters, named, and left out.
+
+**The panel asks rather than remembers.** Every time the popup opens, each AI that has a tab open is
+asked what its page is showing, so a reading from an hour ago is never presented as the present tense.
+A site with no tab open has nothing to be wrong about anyway, and the row says so.
 
 **Walk away.** A green count appears on the toolbar icon as answers land. The panel lists which AI
 finished, how long it took, and one click takes you to that conversation. Soft two-note chime
@@ -56,7 +78,9 @@ paid tier, no trial, and no licence check anywhere in the code.
 | Qwen | Kimi |
 
 Adding another is a one-file change: an adapter in `src/lib/sites.js`, plus its host permission. Every
-provider is switched on by default, so a new one is never silently missing.
+provider is available by default, so a new one is never silently missing. Kimi moved to
+**kimi.ai**, which is where new conversations are opened — the old addresses still work and are still
+claimed, so a tab you opened before the move keeps counting.
 
 ## What it deliberately does not do
 
@@ -66,8 +90,8 @@ provider is switched on by default, so a new one is never silently missing.
 - When a site wants a human — signed out, out of quota, showing a check — it **stops and tells you
   which AI is stuck and why**. Three of the five states it watches for are exactly this.
 
-That is the whole point of the design: it drives the tabs you are already signed in to, at a human
-pace, and it hands control back the moment something looks like it needs a person.
+That is the whole point of the design: it drives the tabs you are already signed in to, one prompt at
+a time per site, and it hands control back the moment something looks like it needs a person.
 
 ## Privacy
 
@@ -91,6 +115,14 @@ Full detail: [PRIVACY.md](PRIVACY.md).
 - Chrome Web Store: _(listing pending)_
 - Firefox Add-ons: _(listing pending)_
 
+### From a release
+
+Every release on [the releases page](https://github.com/5ghzx/whilefree/releases) carries both builds
+— `whilefree-chrome-<version>.zip` and `whilefree-firefox-<version>.zip` — attached by
+[`verify.yml`](.github/workflows/verify.yml) from the tagged commit, so the zips and the tag are the
+same code. Unzip the Chrome one before loading it (*Load unpacked* wants a directory); Firefox takes
+the XPI as it is.
+
 ### From source (unpacked)
 
 ```bash
@@ -102,12 +134,38 @@ npm run build          # writes dist/chrome and dist/firefox
 **Chrome** — `chrome://extensions` → enable Developer mode → *Load unpacked* → pick `dist/chrome`.
 
 **Firefox** — `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on* → pick
-`dist/firefox/manifest.json`. For a permanent install, zip `dist/firefox` and submit it, or use
-[`web-ext`](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/):
+`dist/firefox/manifest.json`.
+
+Temporary add-ons are gone after a browser restart, so for a profile that keeps it, drop the packaged
+XPI into the profile and start Firefox with signature checks off (Developer Edition or Nightly):
+
+```bash
+npm run package
+cp dist/whilefree-firefox-*.zip "$PROFILE/extensions/whilefree@whilefree.app.xpi"
+```
+
+The XPI is a plain zip of the build directory with `manifest.json` at the root, so the store upload and
+the local install are the same file. `extensions.autoDisableScopes` must be `0` for Firefox to load a
+profile-scope add-on without a confirmation click. [`web-ext`](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/)
+works too, with a disposable profile:
 
 ```bash
 npx web-ext run --source-dir dist/firefox
 ```
+
+### The development loop
+
+```bash
+npm run dev            # rebuilds dist/firefox on every save
+npm run dev -- chrome  # or the other target
+```
+
+Leave that running and, in Firefox, hit **Reload** on the extension card in
+`about:debugging#/runtime/this-firefox` after a change. `about:debugging` keeps the profile you are
+already signed into — which matters here, because testing any of this needs a real ChatGPT or Claude
+session. Two things behave differently in Firefox and are expected to: the answer chime falls back to a
+tone played inside an AI tab (Firefox has no offscreen API, so it cannot sound while you are in another
+app), and `about:debugging` add-ons are temporary, so they are gone after a browser restart.
 
 Then sign in to each AI you want to use, once. Open one, type a prompt, and press **Ask all** in the
 launcher at the bottom right of the page.
@@ -130,7 +188,7 @@ One source tree, two stores, no bundler.
 src/
   lib/          shared, dual-mode files (classic script *and* ES module)
   content/      runs on the ten AI sites
-  background/   the worker: queue, tabs, timings
+  background/   the worker: fan-out, tabs, timings
   popup/        the toolbar panel
   dashboard/    the full-page dashboard
 ```
@@ -160,7 +218,7 @@ than the prompt being saved anywhere. That is a deliberate trade.
 
 ```bash
 npm run check    # syntax, manifest, file-registry, message-type and leak checks
-npm test         # node --test: stats, settings, adapters, helpers
+npm test         # node --test: the pure logic, plus the background against a fake browser
 npm run build    # both browsers into dist/
 npm run icons    # regenerate the PNGs from scratch (pure JS, no dependencies)
 npm run verify   # check + test + build
@@ -169,9 +227,16 @@ npm run verify   # check + test + build
 There are no runtime dependencies and no development dependencies. Node 18+ is the only requirement.
 
 `npm run check` is the typechecker this project does not have, and it is not cosmetic: it fails the
-build if a file listed in `src/lib/files.js` is missing, if a `MSG.*` constant is used without being
-declared, if a selector list drifts out of shape, if a shared file starts using `import`, or if a
-`console.log` or a credential reaches `src/`.
+build if a file listed in `src/lib/files.js` is missing, **or if a file exists that nothing loads**, if a
+`MSG.*` constant is used without being declared, if a `WF.x.y` reference has no definition in a file that
+is in the same load list, if a selector list drifts out of shape, if a shared file starts using `import`,
+or if a `console.log` or a credential reaches `src/`.
+
+Those last two exist because all three of the worst bugs found so far passed everything else:
+`WF.browser.storageGet` built an API call from a dotted method name and so persisted nothing at all,
+`content/netwatch.js` and `background/ledger.js` were shipped but never loaded, and the "mark this one
+done" escape hatch reached for a watcher nothing published. `tests/background.test.mjs` loads the real
+background against a fake browser for the same reason.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions, and
 [docs/STORE_LISTING.md](docs/STORE_LISTING.md) for the store submission material.
@@ -183,6 +248,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions, and
 - **[docs/SITE-BEHAVIOUR.md](docs/SITE-BEHAVIOUR.md)** — the niche, undocumented per-site behaviours
   (sticky slow modes, React-controlled textareas, virtualised conversations, `div`-based send buttons)
   and how each is handled. This is the file to read before fixing a broken site.
+- **[docs/UPSTREAM-FINDINGS.md](docs/UPSTREAM-FINDINGS.md)** — what reading the published WhileAI
+  bundle turned up: how their toolbar count decides what to show, the alert rules, and the per-site
+  behaviours that are documented nowhere else — plus exactly which of it we adopted and which we
+  deliberately did not.
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what to build next, and what deliberately not to build.
 - **[PRIVACY.md](PRIVACY.md)** — the data promises, written so they can be checked against the code.
 

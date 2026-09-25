@@ -1,5 +1,11 @@
 name: verify
 
+# A release is created from this job, so the token needs to be allowed to write one. Without
+# this the last step is the only one that fails — after a full green build and two uploaded
+# artifacts — with a permission error that reads like a bug in the action.
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -60,6 +66,9 @@ jobs:
             PRIVACY.md
             LICENSE
 
+      # The release itself. The tag is the only thing that has to be pushed by hand: everything
+      # else — both store zips, the notes, the source archive above — is produced from it, so a
+      # release can never describe a build nobody made.
       - name: Attach zips to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

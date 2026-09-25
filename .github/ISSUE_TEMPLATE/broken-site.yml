@@ -1,5 +1,5 @@
 name: A site stopped working
-description: One of the five AIs no longer receives the prompt, or its answer is never noticed
+description: One of the AIs no longer receives the prompt, or its answer is never noticed
 title: '[site] '
 labels: ['site-breakage']
 body:
@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         This is the maintainer's favourite kind of report, because the fix is usually one line.
-        The markup check below gives everything needed to find it.
+        The page report below gives everything needed to find it.
   - type: dropdown
     id: site
     attributes:
@@ -36,10 +36,10 @@ body:
   - type: textarea
     id: diagnostic
     attributes:
-      label: Markup check output
+      label: Page report
       description: |
-        Open the site → click the WhileFree toolbar icon → **Check this tab's markup** → paste
-        everything that appears.
+        Open the site → click the WhileFree toolbar icon → **Something not working? Diagnose this
+        tab** → paste everything that appears.
       render: text
     validations:
       required: true

@@ -126,7 +126,34 @@
         <div id="head-note"></div>
       </section>
 
-      <!-- 5. Cost ---------------------------------------------------------- -->
+      <!-- 5. Model by model ------------------------------------------------ -->
+      <section class="card">
+        <div class="card-title">Which model actually answered</div>
+        <p class="card-note">
+          Read from the model switcher on the page at the moment of sending — a label, never the
+          answer. "unknown" means the site did not show one, and a model row only appears once an
+          answer to it has been timed.
+        </p>
+        <div class="table-scroll">
+          <table id="models">
+            <thead>
+              <tr>
+                <th>AI</th>
+                <th>Model</th>
+                <th>Prompts</th>
+                <th>Measured</th>
+                <th>First words after</th>
+                <th>Typical answer</th>
+                <th>Slowest 1 in 10</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="models-note"></div>
+      </section>
+
+      <!-- 6. Cost ---------------------------------------------------------- -->
       <section class="card">
         <div class="card-title">Is each subscription earning its keep?</div>
         <p class="card-note">
@@ -191,11 +218,12 @@
       <section class="card">
         <div class="card-title">Sites</div>
         <p class="card-note">
-          A broadcast goes to every site switched on, and never back to the one you started from.
+          A broadcast goes to every site switched on, including the one you asked from. Switching one
+          on opens its tab. The same switch, pressed again, turns one back off.
         </p>
         <div id="sites"></div>
         <div class="row">
-          <button id="check-all" class="btn-quiet">Check all open AIs</button>
+          <button id="check-all" class="btn-quiet">Something not working? Diagnose every open AI</button>
           <span class="spacer"></span>
         </div>
         <div id="diagnostics"></div>
@@ -206,14 +234,14 @@
         <div class="card-title">How it behaves</div>
 
         <div class="setting">
-          <label for="pace-min">Gap between AIs</label>
+          <label for="settle-min">Pause before pressing send</label>
           <div class="row">
-            <input id="pace-min" type="number" min="150" max="5000" step="50" style="width: 84px" />
+            <input id="settle-min" type="number" min="0" max="5000" step="20" style="width: 84px" />
             <span class="dim">to</span>
-            <input id="pace-max" type="number" min="150" max="5000" step="50" style="width: 84px" />
+            <input id="settle-max" type="number" min="0" max="5000" step="20" style="width: 84px" />
             <span class="dim">ms</span>
           </div>
-          <p class="hint">Sends are spaced out so several sites do not see a burst at once.</p>
+          <p class="hint">The pause inside one site, between typing the prompt and pressing send.</p>
         </div>
 
         <div class="setting">
@@ -229,6 +257,31 @@
         </div>
 
         <div class="setting toggles" id="behavior-toggles"></div>
+
+        <div class="setting">
+          <label for="send-mode">When you ask again</label>
+          <select id="send-mode">
+            <option value="continue">keep going in the open conversation</option>
+            <option value="new_chat">start a fresh chat every time</option>
+          </select>
+          <p class="hint">
+            A fresh chat is what you want when comparing answers to the same prompt. Continuing is
+            what you want for a follow-up.
+          </p>
+        </div>
+
+        <div class="setting">
+          <label>Weekly report</label>
+          <p class="hint">One notification a week with your split, the longest wait and any AI that
+            went quiet. Nothing else is ever sent to your screen.</p>
+          <div class="row">
+            <button class="switch" role="switch" id="weekly-switch" aria-checked="true"
+              aria-label="Weekly report"></button>
+            <span class="spacer"></span>
+            <button class="btn-quiet" id="weekly-now">Send it now</button>
+          </div>
+          <div id="weekly-note" class="empty" hidden></div>
+        </div>
 
         <div class="setting">
           <label>Switch off a slow mode before sending</label>

@@ -8,7 +8,6 @@
     stats: 'wf:stats',
     events: 'wf:events',
     answers: 'wf:answers',
-    queue: 'wf:queue',
     siteStatus: 'wf:site-status',
     meta: 'wf:meta',
   };
@@ -80,15 +79,6 @@
 
   async function setAnswers(list) {
     await B.storageSet(KEYS.answers, list);
-  }
-
-  async function getQueue() {
-    const raw = await B.sessionGet(KEYS.queue);
-    return raw || { pending: [], active: null };
-  }
-
-  async function setQueue(queue) {
-    await B.sessionSet(KEYS.queue, queue);
   }
 
   async function getSiteStatus() {
@@ -263,8 +253,6 @@
     updateEvent,
     getAnswers,
     setAnswers,
-    getQueue,
-    setQueue,
     getSiteStatus,
     setSiteStatus,
     setSiteStatusFor,

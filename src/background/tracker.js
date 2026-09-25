@@ -57,7 +57,14 @@
 
   /** Waiting time on tabs you are not looking at, sampled while jobs are live. */
   async function sampleAway() {
-    if (!inFlight.size) return;
+    if (!inFlight.size) {
+      // Nothing is being timed, so nothing needs sampling. Stopping the timer matters more
+      // than it looks: in Chrome a live timer keeps the service worker from ever being
+      // suspended, and this one woke up every five seconds for the life of the browser to
+      // find an empty map. It is started again by the first turn that goes out.
+      stop();
+      return;
+    }
     const active = await bg.answers.activeTab();
     const activeId = active ? active.id : null;
     let dirty = false;
@@ -148,11 +155,11 @@
     }
   }
 
-  async function targetSent({ jobId, siteId, group, tabId, sentAt, origin, promptChars }) {
+  async function targetSent({ jobId, siteId, group, tabId, sentAt, origin, promptChars, model }) {
     const event = await touchEvent(
       jobId,
       siteId,
-      { sentAt: sentAt || nowMs(), tabId, group, origin },
+      { sentAt: sentAt || nowMs(), tabId, group, origin, model: model || null },
       {
         group: group || jobId,
         origin: origin || 'broadcast',
@@ -164,6 +171,9 @@
         aborted: false,
         abandoned: false,
         attention: null,
+        // Which model answered. Read off the page's own switcher at send time; null
+        // rather than guessed when the site does not say.
+        model: model || null,
         tabId,
       }
     );
@@ -195,6 +205,11 @@
       firstWordAt: payload.firstWordAt || (existing && existing.firstWordAt) || null,
       doneAt: payload.doneAt || null,
       awayMs: Math.max(payload.awayMs || 0, (existing && existing.awayMs) || 0),
+      // How the finish was decided: the conversation stream closing, or the page
+      // holding still. Kept so a wrong number can be explained later.
+      via: payload.via || (existing && existing.via) || null,
+      model: payload.model || (existing && existing.model) || null,
+      charsAdded: payload.charsAdded || (existing && existing.charsAdded) || null,
     };
 
     if (phase === WF.PHASE.DONE) {
@@ -214,7 +229,10 @@
       });
 
       const waitedMs = (patch.doneAt || nowMs()) - ((event && event.sentAt) || payload.sentAt || nowMs());
-      await bg.answers.add({
+      // One condition decides whether the answer is news: was the user watching that
+      // tab when it landed? If they were, it is silently counted in their stats and
+      // the badge, list, chime and notification all leave them alone.
+      const entry = await bg.answers.add({
         siteId,
         tabId,
         windowId: focused && focused.id === tabId ? focused.windowId : null,
@@ -223,8 +241,10 @@
         title: payload.title,
         at: patch.doneAt || nowMs(),
       });
-      await bg.answers.chime(siteId);
-      await bg.answers.notify({ siteId, waitedMs });
+      if (entry) {
+        await bg.answers.chime(siteId);
+        await bg.answers.notify({ siteId, waitedMs });
+      }
       clearInFlight(jobId, siteId);
       return event;
     }
@@ -236,8 +256,11 @@
       if (payload.attention) {
         await WF.storage.setSiteStatusFor(siteId, {
           attention: payload.attention.reason,
+          attentionAt: Date.now(),
           hasComposer: false,
         });
+        // An AI that needs you takes the toolbar icon, so refresh it now.
+        await bg.answers.updateBadge();
       }
     }
 
@@ -284,6 +307,26 @@
     if (events.length > cap) await WF.storage.setEvents(events.slice(events.length - cap));
   }
 
+  /**
+   * File what the record is missing.
+   *
+   * A turn whose tab was closed, or whose worker was torn down mid-answer, has no
+   * finish and no failure: it is an orphan. A "answer" that took five milliseconds is
+   * noise. Left alone, the first silently disappears from the totals and the second
+   * drags the averages down, so both are marked and then excluded from the tables by
+   * lib/stats.js. Runs on an alarm and on every startup, so a browser that was closed
+   * mid-answer settles the next time it opens.
+   */
+  async function sweep() {
+    return mutate(async () => {
+      const events = await WF.storage.getEvents();
+      const { events: next, changed } = WF.stats.reclassify(events, nowMs());
+      if (!changed.length) return { changed: 0 };
+      await WF.storage.setEvents(next);
+      return { changed: changed.length, statuses: changed };
+    });
+  }
+
   bg.tracker = {
     start,
     stop,
@@ -296,6 +339,7 @@
     sampleAway,
     flushAway,
     prune,
+    sweep,
     inFlight: () => [...inFlight.values()],
   };
 })();

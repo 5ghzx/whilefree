@@ -18,6 +18,8 @@
     'lib/storage.js',
     'lib/settings.js',
     'lib/stats.js',
+    'lib/badge.js',
+    'lib/status.js',
     // Last, because it describes the lists above it. The background reads it to
     // re-inject the content scripts into tabs that predate the extension load.
     'lib/files.js',
@@ -27,6 +29,8 @@
 
   const CONTENT = [
     'content/composer.js',
+    // Before detect.js: the answer watcher asks it whether a stream is still open.
+    'content/netwatch.js',
     'content/detect.js',
     'content/tracker.js',
     'content/overlay.js',
@@ -37,6 +41,8 @@
     'background/store.js',
     'background/tracker.js',
     'background/answers.js',
+    // Before the engine: the engine reads and writes the delivery ledger.
+    'background/ledger.js',
     'background/engine.js',
     'background/background.js',
   ];

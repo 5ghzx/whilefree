@@ -138,32 +138,68 @@
     return null;
   }
 
+  const STOP_LABEL = /^(stop|stop generating|stop response|stop streaming)$/i;
+
+  /**
+   * The site's stop button, if it is up.
+   *
+   * Asked on every tick of an answer, and on a page with hundreds of buttons the fallback
+   * sweep is the expensive half: reading a label is a string, while `isVisible` costs a
+   * layout — and a layout forced from inside a page that is busy streaming is exactly the
+   * sort of thing that makes it feel slow. So the label is read first and geometry is asked
+   * only about the handful of nodes that could be it.
+   */
   function findStopButton(doc, site) {
     const explicit = pick(doc, site.stop.selectors);
     if (explicit && isVisible(explicit)) return explicit;
-    for (const node of doc.querySelectorAll('button, [role="button"]')) {
-      if (!isVisible(node)) continue;
-      const label = labelOf(node);
-      if (/^(stop|stop generating|stop response|stop streaming)$/i.test(label)) return node;
+    let nodes;
+    try {
+      nodes = doc.querySelectorAll('button, [role="button"]');
+    } catch (err) {
+      return null;
+    }
+    for (const node of nodes) {
+      if (!STOP_LABEL.test(labelOf(node).trim())) continue;
+      if (isVisible(node)) return node;
     }
     return null;
   }
 
-  /** Text of the banner-ish regions only, so a conversation about "limits" is not
-   *  mistaken for a real limit banner. */
-  function bannerText(doc) {
-    const selectors = [
-      '[role="alert"]',
-      '[role="dialog"]',
-      '[role="status"]',
-      '[data-testid*="limit" i]',
-      '[class*="banner" i]',
-      '[class*="toast" i]',
-      '[class*="modal" i]',
-      '[class*="alert" i]',
-      '[class*="captcha" i]',
-      '[class*="challenge" i]',
-    ];
+  /**
+   * The two halves of the banner probe, and why they are not the same cost.
+   *
+   * `[role="alert"]` is an attribute-value match: the engine keeps an index of those, so the
+   * query is a lookup that costs about a millisecond on a big page. `[class*="modal"]` is a
+   * substring match over every class attribute in the document, and it has to build a result
+   * list before anything can be skipped — measured on a page twenty times the size of a long
+   * conversation, the first family is 1.5ms and the second is 36ms.
+   *
+   * Thirty-six milliseconds is not a number that matters once. It matters because this runs
+   * every other tick while an answer is arriving — on a page that is re-laying-out on every
+   * token — and each scan is a forced layout landing in the middle of that. So the cheap half
+   * runs every time, and the expensive half runs on a budget.
+   */
+  const CHEAP_BANNER_SELECTORS = [
+    '[role="alert"]',
+    '[role="dialog"]',
+    '[role="status"]',
+    '[data-testid*="limit" i]',
+  ];
+  const SLOW_BANNER_SELECTORS = [
+    '[class*="banner" i]',
+    '[class*="toast" i]',
+    '[class*="modal" i]',
+    '[class*="alert" i]',
+    '[class*="captcha" i]',
+    '[class*="challenge" i]',
+  ];
+  // Long enough that the scans are rare, short enough that a quota banner is seen while the
+  // answer it interrupted is still on screen.
+  const SLOW_BANNER_MS = 15000;
+  const PER_SELECTOR = 3;
+  let slowBannerAt = 0;
+
+  function readBanners(doc, selectors) {
     const parts = [];
     for (const selector of selectors) {
       let nodes;
@@ -172,19 +208,91 @@
       } catch (err) {
         continue;
       }
+      let taken = 0;
       for (const node of nodes) {
-        if (!isVisible(node)) continue;
+        if (taken >= PER_SELECTOR) break;
         const text = (node.textContent || '').trim();
-        if (text) parts.push(text.slice(0, 400));
+        // Text before geometry: an empty node needs no layout to be judged empty.
+        if (!text) continue;
+        if (!isVisible(node)) continue;
+        taken += 1;
+        parts.push(text.slice(0, 400));
         if (parts.length > 20) break;
       }
+      if (parts.length > 20) break;
     }
-    return parts.join(' \u2022 ').slice(0, 4000);
+    return parts;
+  }
+
+  /**
+   * Text of the banner-ish regions only, so a conversation about "limits" is not mistaken for
+   * a real limit banner.
+   */
+  function bannerText(doc) {
+    const cheap = readBanners(doc, CHEAP_BANNER_SELECTORS);
+    if (cheap.length) return cheap.join(' \u2022 ').slice(0, 4000);
+
+    const now = Date.now();
+    if (now - slowBannerAt < SLOW_BANNER_MS) return '';
+    slowBannerAt = now;
+    return readBanners(doc, SLOW_BANNER_SELECTORS).join(' \u2022 ').slice(0, 4000);
   }
 
   function matchPatterns(patterns, text) {
     for (const pattern of patterns) {
       if (pattern.test(text)) return pattern;
+    }
+    return null;
+  }
+
+  /**
+   * The site's own sign-in door, if it is on screen right now.
+   *
+   * Returns the words on the button, which is what the report shows, or null. Buttons and
+   * links only, visible only, and short labels only: a "Log in" inside a hidden sidebar is
+   * not a door, and neither is the sentence "Log in to get answers based on saved chats"
+   * sitting in a paragraph of marketing copy.
+   */
+  /**
+   * What a control calls itself: its accessible name first, its visible text second.
+   *
+   * `aria-label`/`title` come first because that is the name a control is announced by, and it is
+   * the *only* name an icon-only control has — a picture of a person whose accessible name is
+   * "Sign in", which is how these headers draw a signed-out account. Reading `textContent` alone
+   * finds nothing on a control like that, and a signed-out page that still has a message box on it
+   * then passes as ready. Same order as `labelOf` and `cleanLabel`, for the same reason.
+   */
+  function doorLabel(node) {
+    const raw = node.getAttribute
+      ? node.getAttribute('aria-label') || node.getAttribute('title') || node.textContent
+      : node.textContent;
+    return String(raw || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function loginDoor(doc) {
+    const words = WF.sites.SIGN_IN_WORDS || [];
+    let nodes;
+    try {
+      nodes = doc.querySelectorAll('a, button, [role="button"]');
+    } catch (err) {
+      return null;
+    }
+    // Label first, then geometry. A label is a string to read; `isVisible` asks for client
+    // rects and computed style, which costs a layout — and the moment this runs most often is
+    // during an answer, on a page that is already relaying out on every token. Only the
+    // handful of labels that could be a door are worth that question.
+    for (const node of nodes) {
+      const text = doorLabel(node);
+      if (!text || text.length > 40) continue;
+      let looksLikeADoor = false;
+      for (const word of words) {
+        if (word.test(text)) {
+          looksLikeADoor = true;
+          break;
+        }
+      }
+      if (!looksLikeADoor) continue;
+      if (isVisible(node)) return text;
     }
     return null;
   }
@@ -204,6 +312,14 @@
 
     const urlHit = (site.login.urlPatterns || []).some((p) => String(url || '').includes(p));
     if (urlHit) return { reason: WF.ATTENTION.SIGNED_OUT, evidence: 'url' };
+
+    // Asked whether there is a composer or not, because on these sites a message box is
+    // not a session: ChatGPT answers a stranger, Gemini shows a box that says "Sign in to
+    // save activity". The old order — only look for a sign-in door when no box was found —
+    // is what let a prompt go out to a signed-out page and then be reported as "no answer"
+    // with the answer sitting right there on screen, in the anonymous transcript.
+    const door = loginDoor(doc);
+    if (door) return { reason: WF.ATTENTION.SIGNED_OUT, evidence: door };
     if (!hasComposer && pick(doc, site.login.selectors)) {
       return { reason: WF.ATTENTION.SIGNED_OUT, evidence: 'login link' };
     }
@@ -213,6 +329,16 @@
     }
     return null;
   }
+
+  /**
+   * Nodes that hold the *user's* turn, in the names these apps use for it.
+   *
+   * Needed because a streaming container is not the answer. While a reply is arriving, one
+   * of these sites puts its streaming attribute on the wrapper around the whole exchange,
+   * and the prompt inside it counts as "assistant output" the moment it is painted — which
+   * is why a four-second answer was once recorded as arriving in 14 milliseconds.
+   */
+  const USER_TURN = '[data-testid="user-message"], .font-user-message, [data-message-author-role="user"]';
 
   function assistantNodes(doc, site) {
     const seen = new Set();
@@ -227,6 +353,13 @@
       for (const node of found) {
         if (seen.has(node)) continue;
         seen.add(node);
+        // A node holding the user's own message is the conversation, not the answer. Skip
+        // it rather than counting the prompt as output.
+        try {
+          if (node.querySelector(USER_TURN)) continue;
+        } catch (err) {
+          /* a node that cannot be searched is judged on its own text */
+        }
         nodes.push(node);
       }
     }
@@ -254,6 +387,10 @@
 
   function normalize(str) {
     return String(str || '')
+      // Zero-width and bidi marks are invisible and never part of what was typed, but they
+      // are exactly what makes a read-back "not equal" to the prompt after an insertion that
+      // did land — which is how a second insertion end up layered on the first.
+      .replace(/[\u200b\u200c\u200d\u2060\u200e\u200f\ufeff]/g, '')
       .replace(/\u00a0/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -275,6 +412,64 @@
     range.selectNodeContents(el);
     selection.removeAllRanges();
     selection.addRange(range);
+  }
+
+  /**
+   * Empty the composer, whatever kind of editor is behind it.
+   *
+   * Clearing first is what makes "replace the contents" mean replace. Without it, a box that
+   * already held something — a draft, or the text this very function inserted a moment ago
+   * that the read-back could not confirm — collects a second and third copy as each strategy
+   * is tried. That is not hypothetical: on Perplexity one call to this function left the
+   * prompt in the box three times, which is a tripled question waiting for a send button.
+   *
+   * `deleteFromDocument` is the one that works on the editors that track their own selection:
+   * measured on a live Perplexity box, `execCommand('delete')` after selecting the contents
+   * removed nothing at all, while deleting the selected range emptied it completely.
+   */
+  function clearComposer(doc, el) {
+    if (!el) return { ok: false, empty: true };
+    const view = doc.defaultView;
+
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+      try {
+        setNativeValue(el, '');
+        return { ok: true, empty: (el.value || '') === '' };
+      } catch (err) {
+        return { ok: false, empty: false };
+      }
+    }
+
+    try {
+      selectAll(el);
+      const selection = view.getSelection();
+      if (selection && selection.deleteFromDocument) {
+        selection.deleteFromDocument();
+      } else if (selection && selection.rangeCount) {
+        selection.getRangeAt(0).deleteContents();
+      } else {
+        el.textContent = '';
+      }
+      el.dispatchEvent(new view.InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+    } catch (err) {
+      try {
+        el.textContent = '';
+      } catch (err2) {
+        return { ok: false, empty: false };
+      }
+    }
+
+    // Some editors expose `deleteFromDocument` and quietly do nothing with it — measured on
+    // Kimi, where selecting the contents and deleting left every character in place. The only
+    // evidence worth trusting is the box itself, so ask it and fall back if the answer is no.
+    if (normalize(composerText(el)) !== '') {
+      try {
+        el.textContent = '';
+      } catch (err) {
+        /* nothing else to try */
+      }
+    }
+    return { ok: true, empty: normalize(composerText(el)) === '' };
   }
 
   function pasteText(el, text) {
@@ -301,58 +496,105 @@
   }
 
   /**
+   * What is in the box, judged against the prompt that should be there.
+   *
+   * `exact` is the claim worth acting on. `copies` is how many times the prompt appears,
+   * which is the number that decides whether the box is safe to send: one copy with a
+   * little whitespace around it is a prompt, and three copies is a question the user is
+   * charged for three times.
+   */
+  function readComposer(el, wanted) {
+    const got = normalize(composerText(el));
+    return {
+      text: got,
+      exact: got === wanted,
+      copies: wanted ? got.split(wanted).length - 1 : 0,
+      contains: !!wanted && got.includes(wanted),
+    };
+  }
+
+  /**
    * Put `text` in the composer, replacing whatever is there.
    *
-   * Three strategies in order of how well rich editors like them, each verified by
-   * reading the box back. execCommand is deprecated but is still the only way to
-   * insert text that ProseMirror, Lexical and Quill all accept as real input.
+   * The order is the one that was measured on live pages, not the one that sounds most
+   * thorough. Focusing the box, selecting its contents and using `execCommand('insertText')`
+   * is the pair that rich editors implement as "replace what is selected" — on Perplexity's
+   * Lexical editor it is the only thing that lands the prompt, and it needs the document to
+   * have focus, which a tab in the background does not.
+   *
+   * Two rules keep a failed attempt from becoming a second prompt:
+   *
+   * - nothing is inserted on top of a box that already holds the prompt (`copies >= 1` is a
+   *   result, not a reason to try again), and
+   * - a box left holding two copies is emptied rather than sent.
+   *
+   * A direct DOM write is the fallback, and it is the one a background tab can do: no focus
+   * required, because it is not the browser's editing behaviour, it is ours. Editors that
+   * track their own model accept it once told, which is what the `input` event is for.
    */
   function setComposerText(doc, el, text) {
     const view = doc.defaultView;
     if (!el) return { ok: false, method: 'none' };
     const wanted = normalize(text);
 
-    try {
-      el.focus();
-      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+    // The prompt is already in the box — which is what a retry after "may have landed" sees,
+    // and what a second attempt must not type over.
+    const present = readComposer(el, wanted);
+    if (present.exact) return { ok: true, method: 'already-there' };
+
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+      try {
+        el.focus();
         setNativeValue(el, '');
         setComposerText.lastMethod = 'value';
         setNativeValue(el, text);
-        if (normalize(composerText(el)) === wanted) return { ok: true, method: 'value' };
+        const after = readComposer(el, wanted);
+        if (after.exact) return { ok: true, method: 'value' };
+      } catch (err) {
+        /* fall through to the rich-editor paths */
       }
-    } catch (err) {
-      /* fall through to the rich-editor paths */
-    }
-
-    try {
-      selectAll(el);
-      if (doc.execCommand && doc.execCommand('insertText', false, text)) {
-        if (normalize(composerText(el)) === wanted) return { ok: true, method: 'insertText' };
+    } else {
+      try {
+        el.focus();
+        selectAll(el);
+        if (doc.execCommand && doc.execCommand('insertText', false, text)) {
+          const after = readComposer(el, wanted);
+          if (after.exact) return { ok: true, method: 'insertText' };
+          if (after.copies > 1) {
+            clearComposer(doc, el);
+            return { ok: false, method: 'insertText', reason: 'doubled' };
+          }
+        }
+      } catch (err) {
+        /* fall through */
       }
-    } catch (err) {
-      /* fall through */
-    }
 
-    try {
-      pasteText(el, text);
-      if (normalize(composerText(el)) === wanted) return { ok: true, method: 'paste' };
-    } catch (err) {
-      /* fall through */
-    }
-
-    try {
-      // Last resort: write the DOM directly and fire the events editors listen for.
-      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-        setNativeValue(el, text);
-      } else {
+      try {
+        clearComposer(doc, el);
         el.textContent = text;
         el.dispatchEvent(new view.InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+      } catch (err) {
+        return { ok: false, method: 'failed', error: String((err && err.message) || err) };
       }
-      const got = normalize(composerText(el));
-      return { ok: got === wanted || got.includes(wanted), method: 'dom' };
-    } catch (err) {
-      return { ok: false, method: 'failed', error: String((err && err.message) || err) };
     }
+
+    const after = readComposer(el, wanted);
+    if (after.exact) return { ok: true, method: 'dom' };
+    if (after.copies > 1) {
+      clearComposer(doc, el);
+      return { ok: false, method: 'dom', reason: 'doubled', copies: after.copies };
+    }
+    // Present once with other text around it is a box we did not put the prompt in on its
+    // own; saying so is better than pressing send on a surprise.
+    if (after.contains) return { ok: false, method: 'dom', reason: 'surrounded', copies: after.copies };
+    // Whatever is in there, it is not what we were asked to put there: an editor that
+    // re-rendered from its own state, or a box we never reached at all.
+    return {
+      ok: false,
+      method: 'dom',
+      reason: after.text ? 'other-text' : 'empty-after-insert',
+      text: after.text.slice(0, 40),
+    };
   }
 
   function keyEvent(view, type, key, code, keyCode) {
@@ -428,6 +670,108 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Facts about a page that are not about sending
+  // ---------------------------------------------------------------------------
+
+  /** "GPT-5", "Claude 4.5 Sonnet", "Gemini 3 Pro" — a product name, not prose. */
+  const MODEL_HINT = /\b(gpt|o[1-9]|claude|sonnet|opus|haiku|gemini|flash|pro|deepseek|r1|v3|grok|copilot|mistral|magistral|qwen|kimi|llama|think)/i;
+
+  /**
+   * Which model is on the other end, read from the site's own model switcher.
+   *
+   * This is a label, not the conversation: the dashboard can split answer times by
+   * model only if we know which model answered, and no answer text is involved. The
+   * heuristic variant is deliberately narrow — a short, visible string containing a
+   * model-ish word, next to the composer — because a wrong model on a chart is worse
+   * than no model at all.
+   */
+  function modelLabel(doc, site) {
+    const selectors = (site && site.modelSelectors) || [];
+    const direct = pick(doc, selectors);
+    if (direct) {
+      const text = cleanLabel(direct);
+      if (text) return { label: text, source: 'selector' };
+    }
+    const composer = findComposer(doc, site);
+    const region = composer ? composer.closest('form, main, section, div') || doc.body : doc.body;
+    if (!region) return null;
+    const candidates = region.querySelectorAll('button, [role="button"], [aria-haspopup]');
+    for (const node of candidates) {
+      if (!isVisible(node)) continue;
+      const text = cleanLabel(node);
+      if (!text || text.length > 32) continue;
+      if (!MODEL_HINT.test(text)) continue;
+      return { label: text, source: 'heuristic' };
+    }
+    return null;
+  }
+
+  function cleanLabel(node) {
+    const raw =
+      node.getAttribute('aria-label') ||
+      node.getAttribute('title') ||
+      (node.textContent || '').replace(/\s+/g, ' ').trim();
+    const text = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    // "Model selector, GPT-5" -> "GPT-5"
+    const tail = text.split(/[,:·|]/).map((part) => part.trim()).filter(Boolean);
+    const interesting = tail.find((part) => MODEL_HINT.test(part));
+    return truncateText(interesting || text, 32);
+  }
+
+  function truncateText(text, n) {
+    return text.length <= n ? text : `${text.slice(0, n - 1)}\u2026`;
+  }
+
+  /**
+   * The last prompt the site has accepted into this conversation. Used only to answer
+   * "did that send land?", so a miss degrades to a slower confirmation, never to a
+   * wrong action.
+   */
+  function lastUserText(doc, site) {
+    const selectors = ((site && site.userMessageSelectors) || []).concat([
+      '[data-message-author-role="user"]',
+      '[data-testid="user-message"]',
+      '[class*="user-bubble"]',
+      '.query-text-line',
+      'user-query',
+    ]);
+    let best = null;
+    for (const selector of selectors) {
+      let nodes = [];
+      try {
+        nodes = [...doc.querySelectorAll(selector)];
+      } catch (err) {
+        continue;
+      }
+      for (const node of nodes) {
+        if (!isVisible(node)) continue;
+        const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text || text.length > 20000) continue;
+        const rect = rectOf(node);
+        // Lowest on the page wins: that is the most recent turn in every one of these
+        // layouts, and the rect is cheaper and steadier than trusting DOM order.
+        if (!best || rect.top >= best.top) best = { top: rect.top, text };
+      }
+    }
+    return best ? best.text : '';
+  }
+
+  /** The site's own "new chat" control, if it is reachable from here. */
+  function findNewChatControl(doc, site) {
+    const explicit = pick(doc, (site && site.newChatSelectors) || []);
+    if (explicit) return explicit;
+    const candidates = doc.querySelectorAll('a[href], button, [role="button"]');
+    for (const node of candidates) {
+      if (!isVisible(node)) continue;
+      const label = labelOf(node) || '';
+      if (!/^(new chat|new conversation|start a new chat|new thread|\+\s*new|yeni sohbet)$/i.test(label)) continue;
+      return node;
+    }
+    return null;
+  }
+
   WF.dom = {
     isVisible,
     rectOf,
@@ -438,15 +782,22 @@
     findSendButton,
     findStopButton,
     detectAttention,
+    loginDoor,
     assistantNodes,
     assistantChars,
     composerText,
     setComposerText,
+    clearComposer,
+    readComposer,
     pressEnter,
     selectAll,
     normalize,
     isContentEditable,
     bannerText,
+    SLOW_BANNER_MS,
     diagnose,
+    modelLabel,
+    lastUserText,
+    findNewChatControl,
   };
 })();

@@ -369,13 +369,17 @@
     mount(doc);
     root.addEventListener('click', onClick);
     setSettings(settings);
-    // The launcher doubles as a prompt-state indicator, so poll the box.
+    // The launcher doubles as a prompt-state indicator, so it watches the box — but on
+    // a slower clock, and never out of sight. Once a second, on every AI page, means
+    // reading the whole document and its computed styles every second to learn that a
+    // light has not changed; twice a second slower is not something anyone can see, and
+    // a hidden tab has nobody to show it to.
     setInterval(() => {
-      if (!state.doc) return;
+      if (!state.doc || state.doc.hidden) return;
       const composer = WF.dom.findComposer(state.doc, state.site);
       const text = composer ? WF.dom.normalize(WF.dom.composerText(composer)) : '';
       setComposerHasText(text.length > 0, !!composer);
-    }, 1000);
+    }, 2500);
     render();
   }
 

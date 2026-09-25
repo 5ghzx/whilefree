@@ -134,7 +134,11 @@ test('fromUrl maps a page url to its adapter, or to nothing', () => {
   assert.equal(sites.fromUrl('https://copilot.microsoft.com/chats/1').id, 'copilot');
   assert.equal(sites.fromUrl('https://chat.mistral.ai/chat').id, 'mistral');
   assert.equal(sites.fromUrl('https://chat.qwen.ai/c/1').id, 'qwen');
+  assert.equal(sites.fromUrl('https://www.kimi.ai/chat/1').id, 'kimi', 'Kimi moved to kimi.ai');
+  assert.equal(sites.fromUrl('https://kimi.ai/').id, 'kimi');
+  // A tab opened before the rebrand is still that site, and the old host redirects there.
   assert.equal(sites.fromUrl('https://www.kimi.com/chat/1').id, 'kimi');
+  assert.equal(sites.fromUrl('https://kimi.moonshot.cn/chat/1').id, 'kimi');
 
   assert.equal(sites.fromUrl('https://chatgpt.com.evil.example/'), null, 'no substring matching');
   assert.equal(sites.fromUrl('https://example.com/'), null);
@@ -196,11 +200,19 @@ test('attention patterns catch real banners and not ordinary prose', () => {
 test('attention reasons are a closed set the UI can label', () => {
   assert.deepEqual(Object.values(ATTENTION).sort(), [
     'check',
+    // The one reason that is about the browser rather than the page: an origin Firefox never
+    // handed over, where no content script exists to have a page to be wrong about.
+    'no-access',
     'no-composer',
     'quota',
     'send-failed',
     'signed-out',
   ]);
   assert.equal(globalThis.WF.attentionLabel(ATTENTION.QUOTA), 'Out of quota');
+  // Every reason has to say something a person can act on; a missing label is how a row reads
+  // "Needs you" with no hint of what for.
+  for (const reason of Object.values(ATTENTION)) {
+    assert.notEqual(globalThis.WF.attentionLabel(reason), 'Needs you');
+  }
   assert.equal(globalThis.WF.attentionLabel('nonsense'), 'Needs you');
 });

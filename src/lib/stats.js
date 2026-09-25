@@ -192,6 +192,67 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Is this event still a fact?
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A turn with no finish, and nothing to say it failed, was abandoned: the tab was
+   * closed, or the worker was torn down mid-answer. Their counterpart files these as
+   * `orphaned` after 90 idle seconds; we have no heartbeat, so it is an age check with
+   * room for the slowest answer any site is allowed to take.
+   */
+  const ORPHAN_AFTER_MS = 15 * 60 * 1000;
+
+  /** Below this, an "answer" is a rounding error, not an answer. */
+  const NOISE_UNDER_MS = 5;
+
+  /**
+   * One of: ok, noise, orphaned, failed, open.
+   *
+   * Only `ok` counts towards timings. Everything else is kept in the record — so the
+   * prompt and answer totals stay honest — but excluded from the tables, because a
+   * five-millisecond "answer" and an abandoned tab would both flatter the numbers.
+   */
+  function classifyEvent(event, now) {
+    if (!event || !event.sentAt) return 'invalid';
+    if (event.doneAt && event.doneAt > event.sentAt) {
+      const duration = event.doneAt - event.sentAt;
+      if (duration <= NOISE_UNDER_MS && !event.firstWordAt) {
+        const signals = event.signals || [];
+        if (!signals.length || signals.every((s) => s === 'network')) return 'noise';
+      }
+      return 'ok';
+    }
+    if (event.aborted || event.attention) return 'failed';
+    const age = (now === undefined ? Date.now() : now) - event.sentAt;
+    return age > ORPHAN_AFTER_MS ? 'orphaned' : 'open';
+  }
+
+  /** Every event whose status has changed since it was written. */
+  function reclassify(events, now) {
+    const stamp = now === undefined ? Date.now() : now;
+    const changed = [];
+    const next = (events || []).map((event) => {
+      const status = classifyEvent(event, stamp);
+      // `open` and `invalid` are not worth writing: one is still running, the other is
+      // junk we will drop on retention anyway.
+      if (status === 'open' || status === 'invalid') return event;
+      if (event.status === status) return event;
+      changed.push({ id: event.id, status });
+      return { ...event, status, classifiedAt: stamp };
+    });
+    return { events: next, changed };
+  }
+
+  /** Is this event one the timing tables should use? */
+  function usable(event) {
+    if (!event || !event.sentAt || !event.doneAt) return false;
+    if (event.doneAt <= event.sentAt) return false;
+    if (event.aborted) return false;
+    return event.status !== 'noise' && event.status !== 'orphaned';
+  }
+
   function percentile(sortedAsc, p) {
     if (!sortedAsc.length) return null;
     const idx = U.clamp(Math.ceil((p / 100) * sortedAsc.length) - 1, 0, sortedAsc.length - 1);
@@ -216,9 +277,9 @@
    * a finish we saw land.
    */
   function headToHead(events) {
-    const measured = (events || []).filter(
-      (e) => e && e.siteId && e.sentAt && e.doneAt && e.doneAt > e.sentAt && !e.aborted
-    );
+    // `usable` is the whole honesty story here: orphans and noise are in the record but
+    // not in the table.
+    const measured = (events || []).filter((e) => e && e.siteId && usable(e));
     const bySite = {};
     const groups = new Map();
 
@@ -249,7 +310,8 @@
     // Count sends that never produced a measured answer, so "switched away" has
     // a denominator that includes the times it simply failed.
     for (const event of events || []) {
-      if (!event || !event.siteId || (event.doneAt && event.doneAt > event.sentAt && !event.aborted)) continue;
+      if (!event || !event.siteId || usable(event)) continue;
+      if (event.sentAt === null || event.sentAt === undefined) continue;
       const site = (bySite[event.siteId] = bySite[event.siteId] || {
         siteId: event.siteId,
         sent: 0,
@@ -299,6 +361,61 @@
     });
     rows.sort((a, b) => (a.answerMedian === null ? 1e9 : a.answerMedian) - (b.answerMedian === null ? 1e9 : b.answerMedian));
     return { rows, sharedGroups };
+  }
+
+  /**
+   * The same timings, split by the model that answered rather than by site.
+   *
+   * "Is Pro worth it over Flash?" is the question a site-level table cannot answer, and
+   * the model name is a label on the page — never the answer text. Events with no model
+   * read fall into `unknown`, which is honest rather than hidden.
+   */
+  function modelRows(events) {
+    const groups = new Map();
+    for (const event of events || []) {
+      if (!event || !event.siteId) continue;
+      const model = event.model || 'unknown';
+      const key = `${event.siteId}::${model}`;
+      const row = groups.get(key) || {
+        siteId: event.siteId,
+        model,
+        sent: 0,
+        measured: 0,
+        answers: [],
+        firstWords: [],
+      };
+      row.sent += 1;
+      if (usable(event)) {
+        row.measured += 1;
+        row.answers.push(event.doneAt - event.sentAt);
+        if (event.firstWordAt && event.firstWordAt > event.sentAt) {
+          row.firstWords.push(event.firstWordAt - event.sentAt);
+        }
+      }
+      groups.set(key, row);
+    }
+
+    const rows = [...groups.values()].map((row) => {
+      const answers = [...row.answers].sort((a, b) => a - b);
+      return {
+        siteId: row.siteId,
+        model: row.model,
+        sent: row.sent,
+        measured: row.measured,
+        answerMedian: median(answers),
+        answerP90: percentile(answers, 90),
+        firstWordMedian: median(row.firstWords),
+        // A model seen once is a curiosity, not a finding. The dashboard hides these
+        // behind the "measured" count it already shows.
+        measuredPct: row.sent ? U.pct(row.measured, row.sent) : 0,
+      };
+    });
+    rows.sort((a, b) => {
+      if (a.answerMedian === null) return 1;
+      if (b.answerMedian === null) return -1;
+      return a.answerMedian - b.answerMedian;
+    });
+    return rows;
   }
 
   /**
@@ -416,6 +533,39 @@
     return hours;
   }
 
+  /**
+   * The once-a-week digest, as one line you can read on a lock screen.
+   *
+   * Numbers only: how many answers landed, how long you spent, which AI you leaned on,
+   * and how much of the waiting happened while you were somewhere else. No prompt text
+   * and no answer text, because neither ever reaches this side of the extension.
+   */
+  function weeklyDigest(sum, opts) {
+    const options = opts || {};
+    const s = split(sum.totals);
+    const answers = sum.totals.answers || 0;
+    const prompts = sum.totals.prompts || 0;
+    const parts = [
+      `${U.num(answers)} answer${answers === 1 ? '' : 's'}`,
+      `${U.humanShort(s.total)} in AI tabs`,
+    ];
+    const ranked = Object.entries(sum.perSite || {})
+      .map(([siteId, counters]) => ({ siteId, answers: counters.answers || 0, prompts: counters.prompts || 0 }))
+      .sort((a, b) => b.answers - a.answers || b.prompts - a.prompts);
+    if (ranked.length > 1 && ranked[0].answers > 0) {
+      const top = WF.sites ? WF.sites.byId(ranked[0].siteId) : null;
+      if (top) parts.push(`most used: ${top.name}`);
+    }
+    if (s.away > 0 && s.total > 0) {
+      parts.push(`${U.pct(s.away, s.total)}% of the waiting spent elsewhere`);
+    }
+    if (!prompts && !answers) return null;
+    return {
+      title: options.title || `Your AI week: ${U.humanDuration(s.total)}`,
+      message: `${parts.join(' \u00b7 ')}. Click for the full report.`,
+    };
+  }
+
   /** The shareable weekly/monthly card content. Plain text on purpose. */
   function summaryCard(sum, opts) {
     const options = opts || {};
@@ -468,6 +618,11 @@
     median,
     mean,
     headToHead,
+    modelRows,
+    classifyEvent,
+    reclassify,
+    usable,
+    ORPHAN_AFTER_MS,
     costRows,
     costNote,
     VERDICT_LABEL,
@@ -475,5 +630,6 @@
     attentionDetail,
     byHour,
     summaryCard,
+    weeklyDigest,
   };
 })();

@@ -6,6 +6,7 @@ import '../lib/sites.js';
 import '../lib/storage.js';
 import '../lib/settings.js';
 import '../lib/stats.js';
+import '../lib/status.js';
 import './charts.js';
 
 const U = WF.util;
@@ -15,6 +16,7 @@ const el = (id) => document.getElementById(id);
 let settings = null;
 let stats = null;
 let events = [];
+let siteStatus = {};
 let rangeDays = 7;
 let metric = 'waiting';
 let cardRange = 'week';
@@ -25,14 +27,16 @@ const diagnostics = {};
 // ---------------------------------------------------------------------------
 
 async function load() {
-  const [nextSettings, nextStats, nextEvents] = await Promise.all([
+  const [nextSettings, nextStats, nextEvents, nextStatus] = await Promise.all([
     WF.storage.getSettings(),
     WF.storage.getStats(),
     WF.storage.getEvents(),
+    WF.storage.getSiteStatus(),
   ]);
   settings = nextSettings;
   stats = nextStats;
   events = nextEvents;
+  siteStatus = nextStatus;
   render();
 }
 
@@ -92,6 +96,7 @@ function render() {
   renderBars(sum);
   renderPerSite(sum, head);
   renderHeadToHead(head, scoped);
+  renderModels(scoped);
   renderPrices();
   renderCosts(sum, keys);
   renderAttention(scoped);
@@ -286,6 +291,51 @@ function renderHeadToHead(head, scoped) {
 
 // 5. Cost --------------------------------------------------------------------
 
+/**
+ * Model by model, which a site-level table cannot answer: "is Pro worth it over Flash?"
+ * One row per model actually seen on a page, with the same measures as head to head.
+ */
+function renderModels(scoped) {
+  const body = el('models').querySelector('tbody');
+  const table = el('models').closest('.table-scroll');
+  const rows = WF.stats
+    .modelRows(scoped)
+    .filter((row) => row.measured > 0)
+    .slice(0, 12);
+
+  if (!rows.length) {
+    table.hidden = true;
+    el('models-note').innerHTML =
+      '<div class="note">No model has been named on a page yet. Send a prompt and it starts ' +
+      'filling in: the label is read from the site\u2019s own switcher.</div>';
+    return;
+  }
+  table.hidden = false;
+
+  body.innerHTML = rows
+    .map(
+      (row) => `<tr>
+        <td><i class="dot" style="background:${siteColor(row.siteId)}"></i>${U.escapeHtml(
+          siteName(row.siteId)
+        )}</td>
+        <td>${U.escapeHtml(row.model)}</td>
+        <td>${U.num(row.sent)}</td>
+        <td>${row.measured}${row.measured < row.sent ? ` <span class="dim">of ${row.sent}</span>` : ''}</td>
+        <td>${row.firstWordMedian === null ? '—' : U.humanShort(row.firstWordMedian)}</td>
+        <td>${row.answerMedian === null ? '—' : U.humanShort(row.answerMedian)}</td>
+        <td>${row.answerP90 === null ? '—' : U.humanShort(row.answerP90)}</td>
+      </tr>`
+    )
+    .join('');
+
+  const named = rows.filter((row) => row.model !== 'unknown').length;
+  el('models-note').innerHTML = `<div class="note">${U.escapeHtml(
+    named
+      ? `${named} model${named === 1 ? '' : 's'} seen. Answers with no label are counted as unknown rather than guessed at.`
+      : 'Every answer so far came from a page that showed no model name, so they are all counted as unknown.'
+  )}</div>`;
+}
+
 function renderPrices() {
   el('prices').innerHTML = WF.sites
     .list()
@@ -435,20 +485,42 @@ function renderSites() {
 
   for (const site of WF.sites.list()) {
     const enabled = (settings.enabledSites || []).includes(site.id);
+    // The same rule as the popup: on means switched on *and* checked. An AI whose page has
+    // never said it is signed in cannot be sent to, so a switch that claimed otherwise
+    // would be wrong about the only thing it is there to tell you.
+    const verified = WF.status.isVerified(siteStatus[site.id]);
+    const on = enabled && verified;
     const row = document.createElement('div');
     row.className = 'site-row';
 
     const button = document.createElement('button');
     button.className = 'switch';
     button.setAttribute('role', 'switch');
-    button.setAttribute('aria-checked', String(enabled));
+    button.setAttribute('aria-checked', String(on));
     button.setAttribute('aria-label', `${site.name} on`);
-    button.addEventListener('click', () => {
-      const next = new Set(settings.enabledSites || []);
-      if (enabled) next.delete(site.id);
-      else next.add(site.id);
-      if (!next.size) return;
-      save({ enabledSites: [...next] });
+    button.addEventListener('click', async () => {
+      if (on) {
+        save({
+          enabledSites: (settings.enabledSites || []).filter((id) => id !== site.id),
+        });
+        return;
+      }
+      // Switching one on opens its tab and checks it there; see the popup for the rule.
+      flashNote(`Opening ${site.name}…`);
+      const res = await WF.browser.send({
+        type: MSG.VERIFY_SITE,
+        siteId: site.id,
+        timeoutMs: 30000,
+      });
+      if (res && res.verified) {
+        flashNote(`${site.name} is on.`, 'good');
+      } else {
+        flashNote(
+          `Sign in to ${site.name} in the tab that opened, then press the switch again.`,
+          'bad'
+        );
+      }
+      await load();
     });
 
     const dot = document.createElement('span');
@@ -459,19 +531,51 @@ function renderSites() {
     name.className = 'name';
     name.textContent = site.name;
 
+    const statusCell = document.createElement('span');
+    statusCell.className = 'dim';
+    const stored = siteStatus[site.id];
+    const attention = stored && stored.attention;
+    // The same rule as the popup, for the same reason: a reading is shown in the present tense
+    // while it is fresh and as history once it is not. A site nobody has looked at since yesterday
+    // cannot be *signed out* — it can only have been, the last time anybody looked — and saying
+    // otherwise on this page is how an AI the user was signed in to was reported as signed out for
+    // a day and quietly left out of every fan-out.
+    const fresh = !!(attention && WF.status.attentionIsFresh(stored));
+    statusCell.textContent = fresh
+      ? WF.attentionLabel(attention)
+      : enabled && !verified
+        ? 'not checked'
+        : verified
+          ? 'signed in'
+          : 'closed';
+    if (attention && !fresh) {
+      const at = WF.status.attentionAt(stored);
+      statusCell.title = `Last time its page was looked at it was showing: ${WF.attentionLabel(
+        attention
+      )}${at ? ` (${WF.util.relativeTime(at)})` : ''}.`;
+    }
+
     const check = document.createElement('button');
     check.className = 'btn-quiet';
-    check.textContent = 'Check markup';
+    check.textContent = 'Diagnose';
+    check.title = `Check whether ${site.name} has changed its page`;
     check.addEventListener('click', () => checkSite(site.id));
 
-    row.append(button, dot, name, Object.assign(document.createElement('span'), { className: 'spacer' }), check);
+    row.append(
+      button,
+      dot,
+      name,
+      statusCell,
+      Object.assign(document.createElement('span'), { className: 'spacer' }),
+      check
+    );
     host.append(row);
   }
 }
 
 async function checkSite(siteId) {
   const host = el('diagnostics');
-  host.innerHTML = `<p class="empty">Checking ${U.escapeHtml(siteName(siteId))}…</p>`;
+  host.innerHTML = `<p class="empty">Looking at ${U.escapeHtml(siteName(siteId))}…</p>`;
   const res = await WF.browser.send({ type: MSG.TEST_SITE, siteId });
   if (!res || !res.ok) {
     host.innerHTML = `<p class="empty">${U.escapeHtml(
@@ -481,11 +585,11 @@ async function checkSite(siteId) {
   }
   diagnostics[siteId] = res.diagnostic;
   host.innerHTML = `<details class="diag" open>
-      <summary>${U.escapeHtml(siteName(siteId))} markup check</summary>
+      <summary>What ${U.escapeHtml(siteName(siteId))} looks like</summary>
       <pre>${U.escapeHtml(JSON.stringify(res.diagnostic, null, 2))}</pre>
       <p class="dim" style="font-size: 12px">
-        If a field is null, that site changed its page. Please open an issue with this text:
-        a selector fix is usually one line in src/lib/sites.js.
+        A field that is null is something WhileFree could not find on the page. Please open an
+        issue with this text and it can be pointed at the right place.
       </p>
     </details>`;
 }
@@ -493,13 +597,26 @@ async function checkSite(siteId) {
 // 10. Settings ---------------------------------------------------------------
 
 function renderSettings() {
-  el('pace-min').value = settings.paceMs[0];
-  el('pace-max').value = settings.paceMs[1];
+  el('settle-min').value = settings.settleMs[0];
+  el('settle-max').value = settings.settleMs[1];
   el('notify-wait').value = String(settings.notifyMinWaitMs || 0);
+
+  el('send-mode').value = settings.sendMode === 'new_chat' ? 'new_chat' : 'continue';
+  el('weekly-switch').setAttribute('aria-checked', String(settings.weeklyReportEnabled !== false));
 
   const toggles = [
     ['autoOpenTabs', 'Open a background tab for an AI that is closed'],
     ['keepTabsOpen', 'Leave those tabs open afterwards'],
+    ['singleWindow', 'Open the tabs a broadcast has to open in a window of their own'],
+    ['autoCapture', 'Send along a prompt typed in an AI\u2019s own box'],
+    ['lockstep', 'Hold a prompt back unless every AI is ready'],
+    ['groupTabs', 'Put the broadcast\u2019s tabs in one group (Chrome only)'],
+    [
+      'requireSignIn',
+      'Only send to an AI that is signed in',
+    ],
+    ['focusOnRetry', 'Bring a tab forward if a site will not accept a prompt in the background'],
+    ['badgeEnabled', 'Show the answered count on the toolbar icon'],
     ['chimeEnabled', 'Chime when an answer lands'],
     ['notifySystem', 'Also raise a system notification'],
     ['overlayEnabled', 'Show the launcher inside the AI pages'],
@@ -622,7 +739,7 @@ async function doExportCsv(kind) {
   );
 }
 
-/** Run the markup check across every AI that is currently open. */
+/** Look at every AI that is currently open, for when one of them stops answering. */
 async function checkAllOpen() {
   const host = el('diagnostics');
   const open = [];
@@ -636,11 +753,11 @@ async function checkAllOpen() {
     return;
   }
   host.innerHTML = `<details class="diag" open>
-      <summary>Markup check: ${open.length} open AI${open.length === 1 ? '' : 's'}</summary>
+      <summary>What ${open.length} open AI${open.length === 1 ? '' : 's'} look like</summary>
       <pre>${U.escapeHtml(JSON.stringify(open, null, 2))}</pre>
       <p class="dim" style="font-size: 12px">
-        Paste this into an issue if something is missing. A fix is usually one line in
-        src/lib/sites.js.
+        Anything showing as null is something WhileFree could not find on the page. Paste this
+        into an issue and it can be pointed at the right place.
       </p>
     </details>`;
 }
@@ -709,19 +826,45 @@ function wire() {
   el('copy-card').addEventListener('click', copySummary);
   el('download-card').addEventListener('click', downloadSummary);
 
-  el('pace-min').addEventListener('change', () => {
-    const min = Number(el('pace-min').value) || 900;
-    const max = Math.max(min, Number(el('pace-max').value) || min + 400);
-    save({ paceMs: [min, max] });
-  });
-  el('pace-max').addEventListener('change', () => {
-    const min = Number(el('pace-min').value) || 900;
-    const max = Math.max(min, Number(el('pace-max').value) || min + 400);
-    save({ paceMs: [min, max] });
-  });
+  // The one pause that is left now that a broadcast goes out all at once: inside a single
+  // site, between typing the prompt and pressing send. Some pages need a moment to notice
+  // what was typed; the two numbers are the range a random delay is drawn from.
+  const saveSettle = () => {
+    const min = Math.max(0, Number(el('settle-min').value) || 0);
+    const max = Math.max(min, Number(el('settle-max').value) || min);
+    save({ settleMs: [min, max] });
+  };
+  el('settle-min').addEventListener('change', saveSettle);
+  el('settle-max').addEventListener('change', saveSettle);
 
   el('notify-wait').addEventListener('change', (event) => {
     save({ notifyMinWaitMs: Number(event.target.value) || 0 });
+  });
+
+  el('send-mode').addEventListener('change', (event) => {
+    save({ sendMode: event.target.value });
+  });
+
+  el('weekly-switch').addEventListener('click', () => {
+    const next = !(settings.weeklyReportEnabled !== false);
+    el('weekly-switch').setAttribute('aria-checked', String(next));
+    save({ weeklyReportEnabled: next });
+  });
+
+  // The same digest the alarm sends, on demand — otherwise it is a week before you can
+  // tell whether it says anything worth reading.
+  el('weekly-now').addEventListener('click', async () => {
+    const res = await WF.browser.send({ type: MSG.WEEKLY_REPORT });
+    const host = el('weekly-note');
+    const message = res && res.ok
+      ? 'Sent — check your notifications.'
+      : res && res.reason === 'off'
+        ? 'Turn the weekly report on first.'
+        : res && res.reason === 'nothing-to-report'
+          ? 'Nothing recorded in the last 7 days.'
+          : 'Nothing to report yet: the clock starts on the first day of use.';
+    host.textContent = message;
+    host.hidden = false;
   });
 
   el('export').addEventListener('click', doExport);
@@ -741,7 +884,7 @@ function wire() {
     save({ onboardingDone: true });
   });
 
-  for (const input of [el('pace-min'), el('pace-max')]) {
+  for (const input of [el('settle-min'), el('settle-max')]) {
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') input.blur();
     });

@@ -215,6 +215,49 @@
     return Math.abs(a - b) <= tolerance;
   }
 
+  /** Collapse whitespace, so two visually identical prompts compare equal. */
+  function normalizeText(text) {
+    return String(text === undefined || text === null ? '' : text)
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * A prompt's identity, without keeping the prompt.
+   *
+   * Two 32-bit accumulators over the normalised text, plus its length: enough to
+   * decide "is this the same prompt?" — which is all it is for. It tells us whether a
+   * capture is the echo of something we just delivered, and whether a retry has
+   * already landed, and it does that without storing the text anywhere.
+   */
+  function fingerprint(text) {
+    const s = normalizeText(text);
+    let h1 = 0x811c9dc5;
+    let h2 = 0x27d4eb2f;
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+      h2 = Math.imul(h2 + c + i, 2246822519) >>> 0;
+    }
+    return `${s.length.toString(36)}-${h1.toString(36)}-${h2.toString(36)}`;
+  }
+
+  /**
+   * A short, plain-language label for a limit the user can change. Used by the
+   * "only alert me after" picker, which offers a fixed ladder rather than a free
+   * number: a threshold nobody can reason about is a threshold nobody sets.
+   */
+  const WAIT_STEPS_MS = [0, 5000, 10000, 30000, 60000, 120000, 300000];
+
+  function nearestWaitStep(ms) {
+    const value = Number(ms);
+    if (!isFinite(value)) return 0;
+    return WAIT_STEPS_MS.reduce(
+      (best, step) => (Math.abs(step - value) < Math.abs(best - value) ? step : best),
+      WAIT_STEPS_MS[0]
+    );
+  }
+
   WF.util = {
     DAY_MS,
     pad,
@@ -243,5 +286,9 @@
     deepMerge,
     debounce,
     near,
+    normalizeText,
+    fingerprint,
+    WAIT_STEPS_MS,
+    nearestWaitStep,
   };
 })();

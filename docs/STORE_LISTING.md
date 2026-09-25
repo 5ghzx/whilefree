@@ -31,8 +31,7 @@ extension itself is fine.
 > who gets it right. WhileFree does the pasting.
 >
 > Type your prompt once, in whichever AI you are already using, and press Ask all. The same prompt
-> goes to the others you switched on — each answering in its own tab, in its own account, at roughly
-> the pace a person would type it.
+> goes to every AI you switched on at once — each answering in its own tab, in its own account.
 >
 > **Ten AIs, not five.** ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Copilot, Le Chat, Qwen
 > and Kimi. Switch on the ones you actually use; there is no cap on how many, and no paid tier to unlock
@@ -149,13 +148,23 @@ prompts in the screenshots.
 
 ## Release checklist
 
+Steps 1–4 are one command — `npm run release patch`, or `minor`, or `major`, or the version itself:
+
 1. Bump `version` in `src/manifest.base.json` **and** `package.json` (they must match; `npm run check`
-   enforces it).
-2. Update `CHANGELOG.md`.
+   enforces it). `scripts/release.mjs` writes both from the one string it is about to tag, so the tag
+   and the manifest inside the zip cannot disagree.
+2. Update `CHANGELOG.md`: cut the `## [Unreleased]` heading into a dated section for the version, and
+   open a fresh Unreleased above it.
 3. `npm run verify`.
 4. `npm run package` → `dist/whilefree-chrome-<version>.zip` and `dist/whilefree-firefox-<version>.zip`.
-5. Load both unpacked and run through: broadcast from a page, broadcast from the popup, an answer
-   landing while on another tab, the badge count, one click to open, a full dashboard render, export
-   and re-import, and the markup check on all five sites.
-6. Upload the zips. For Firefox, upload the source zip as well if prompted for it — this repository at
-   the matching tag *is* the source.
+
+The same command then commits and tags `v<version>`. Add `--push` and that is the whole publication:
+[`verify.yml`](../.github/workflows/verify.yml) runs the checks, builds both browsers, zips them for
+the stores, and attaches those zips to a release named after the tag. It refuses to run on a tree with
+uncommitted changes, because a release has to be a commit of exactly what was tested.
+
+5. *(by hand)* Load both unpacked and run through: broadcast from a page, broadcast from the popup, an
+   answer landing while on another tab, the badge count, one click to open, a full dashboard render,
+   export and re-import, and the *Diagnose this tab* report on a couple of sites.
+6. *(by hand)* Upload the zips. For Firefox, upload the source zip as well if prompted for it — this
+   repository at the matching tag *is* the source.

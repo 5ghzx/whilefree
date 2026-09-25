@@ -55,14 +55,24 @@
         <div id="answers"></div>
       </section>
 
-      <!-- A send in progress. -->
+      <!-- A send in progress, one row per AI, each one controllable on its own. -->
       <section class="card" id="job-card" hidden>
         <div class="row">
           <div class="card-title" style="margin: 0" id="job-title">Sending</div>
           <span class="spacer"></span>
-          <button class="btn-quiet" id="cancel-job">Stop</button>
+          <button class="btn-quiet" id="compare" hidden>Compare</button>
+          <button class="btn-quiet" id="cancel-job">Stop all</button>
         </div>
         <div id="job-targets"></div>
+      </section>
+
+      <!-- Other prompts going out at the same time. Nothing waits in a line. -->
+      <section class="card" id="queue-card" hidden>
+        <div class="row">
+          <div class="card-title" style="margin: 0">Also going out</div>
+        </div>
+        <div class="dim">Sent at the same time as the one above, not after it.</div>
+        <div id="queued"></div>
       </section>
 
       <!-- Today, in three numbers. -->
@@ -72,10 +82,25 @@
         <div id="today-total" class="dim" style="margin-top: 8px">Nothing recorded yet today.</div>
       </section>
 
-      <!-- Switches. -->
+      <!-- One master switch, above the list, for the feature itself. It is not a shortcut for the
+           switches below it: off means nothing is sent, and the AIs you picked stay picked. -->
       <section class="card">
         <div class="card-title">Send to</div>
+        <div class="row">
+          <span><strong>WhileFree</strong></span>
+          <span class="spacer"></span>
+          <button class="switch" id="all-switch" role="switch" aria-checked="false" aria-label="WhileFree on or off"></button>
+        </div>
+        <div class="hint" id="all-hint">On: one Send asks the AIs below at once.</div>
+        <div class="sep"></div>
         <div id="sites"></div>
+        <div class="sep"></div>
+        <div class="row">
+          <span>Only send to AIs that say they are signed in</span>
+          <span class="spacer"></span>
+          <button class="switch" id="strict-switch" role="switch" aria-checked="true" aria-label="Check sign-in first"></button>
+        </div>
+        <div class="hint" id="strict-hint"></div>
         <div class="sep"></div>
         <div class="row">
           <span>A chime when an answer lands</span>
@@ -87,6 +112,17 @@
           <span class="spacer"></span>
           <button class="switch" id="tabs-switch" role="switch" aria-checked="true" aria-label="Open tabs"></button>
         </div>
+        <div class="row" style="margin-top: 10px">
+          <span>Start a fresh chat for each prompt</span>
+          <span class="spacer"></span>
+          <button class="switch" id="newchat-switch" role="switch" aria-checked="false" aria-label="New chat"></button>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <span>Wait for every AI before sending</span>
+          <span class="spacer"></span>
+          <button class="switch" id="lockstep-switch" role="switch" aria-checked="false" aria-label="Lockstep"></button>
+        </div>
+        <div class="hint" id="lockstep-hint">On: nothing goes out until all of them are ready.</div>
       </section>
 
       <section class="card">
@@ -94,8 +130,9 @@
           <button class="btn-quiet" id="open-dashboard" style="text-align: left">Open the dashboard →</button>
         </div>
         <div class="row">
-          <button class="btn-quiet" id="check-tab" style="text-align: left">Check this tab's markup</button>
+          <button class="btn-quiet" id="check-tab" style="text-align: left">Not working? Diagnose this tab</button>
         </div>
+        <div id="action-note" class="empty" hidden></div>
         <div class="row">
           <a class="btn-quiet" id="repo-link" href="#" target="_blank" rel="noreferrer">Source on GitHub ↗</a>
         </div>

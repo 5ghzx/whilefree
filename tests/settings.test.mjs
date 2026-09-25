@@ -17,16 +17,27 @@ test('defaults switch every site on: there is no paid tier to hold back', () => 
   assert.equal(s.disableSlowModes.deepseek, true, 'the one slow mode we know is on by default');
 });
 
-test('unknown site ids are dropped and an empty selection falls back', () => {
-  assert.deepEqual(settings.normalize({ enabledSites: ['chatgpt', 'nope'] }).enabledSites, ['chatgpt']);
-  const empty = settings.normalize({ enabledSites: [] });
-  assert.equal(empty.enabledSites.length, 1, 'never leave the user with nothing switched on');
+test('a broadcast opens what it has to open in a window of its own, by default', () => {
+  const s = settings.normalize({});
+  assert.equal(s.autoOpenTabs, true);
+  // Tabs appearing in the middle of the window you are working in was the one complaint
+  // about a fan-out, so the separate window is not something to go and find in settings.
+  assert.equal(s.singleWindow, true);
+  assert.equal(settings.normalize({ singleWindow: false }).singleWindow, false, 'and it can be turned off');
 });
 
-test('pacing is clamped into a sane window and always ordered', () => {
-  assert.deepEqual(settings.normalize({ paceMs: [5, 999999] }).paceMs, [150, 5000]);
-  assert.deepEqual(settings.normalize({ paceMs: [2000, 500] }).paceMs, [2000, 2000]);
-  assert.deepEqual(settings.normalize({ paceMs: 'nonsense' }).paceMs, [900, 1700]);
+test('unknown site ids are dropped, and an empty selection stays empty', () => {
+  assert.deepEqual(settings.normalize({ enabledSites: ['chatgpt', 'nope'] }).enabledSites, ['chatgpt']);
+  // Nothing switched on is a state the turn-on flow can genuinely reach — switching an AI
+  // on means having verified it, so an empty list has to survive a round trip rather than
+  // being quietly replaced by the first provider in the registry.
+  assert.deepEqual(settings.normalize({ enabledSites: [] }).enabledSites, []);
+});
+
+test('the settle window is clamped into a sane range and always ordered', () => {
+  assert.deepEqual(settings.normalize({ settleMs: [5, 999999] }).settleMs, [5, 5000]);
+  assert.deepEqual(settings.normalize({ settleMs: [2000, 500] }).settleMs, [2000, 2000]);
+  assert.deepEqual(settings.normalize({ settleMs: 'nonsense' }).settleMs, settings.DEFAULTS.settleMs);
 });
 
 test('delayFrom stays inside the configured pair', () => {
