@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "WhileFree: Ask ChatGPT, Claude & Gemini at Once",
+  "name": "WhileFree: One Prompt, Every AI",
   "short_name": "WhileFree",
   "version": "0.1.0",
   "description": "Type one prompt and send it to ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Copilot, Le Chat, Qwen and Kimi at once, in the tabs you are already signed in to. Free and open source.",

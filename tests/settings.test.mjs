@@ -17,13 +17,42 @@ test('defaults switch every site on: there is no paid tier to hold back', () => 
   assert.equal(s.disableSlowModes.deepseek, true, 'the one slow mode we know is on by default');
 });
 
-test('a broadcast opens what it has to open in a window of its own, by default', () => {
+test('a broadcast reaches the AIs you have open and opens nothing by default', () => {
   const s = settings.normalize({});
-  assert.equal(s.autoOpenTabs, true);
-  // Tabs appearing in the middle of the window you are working in was the one complaint
-  // about a fan-out, so the separate window is not something to go and find in settings.
+  // Off by default, and this is the half of it that is a decision rather than a feature: a
+  // fan-out is something you do from a conversation you are already in, and a tab for every
+  // other AI arriving behind your back is the loudest complaint this extension has had. Ten
+  // tabs is a heavier thing to do to someone than three skipped AIs, so the tab is the thing
+  // that gets asked for — and `autoOpenTabs` is where they ask.
+  assert.equal(s.autoOpenTabs, false);
+  // What it opens when it does, it opens in a window of its own: tabs appearing in the middle
+  // of the window you are working in was the other complaint, so the separate window is not
+  // something to go and find in settings.
   assert.equal(s.singleWindow, true);
   assert.equal(settings.normalize({ singleWindow: false }).singleWindow, false, 'and it can be turned off');
+  // The opt-in works, but only on a record that has already been through the version 2 upgrade:
+  // an old record saying `true` is the old default, not a request, and the migration above is
+  // the one place that distinction is made.
+  assert.equal(settings.normalize({ version: 2, autoOpenTabs: true }).autoOpenTabs, true, 'as can the tab opening');
+});
+
+test('a settings record from before the tab default changed is migrated once', () => {
+  // Version 1 stored `autoOpenTabs: true`, because that was the default then — not because
+  // anyone chose it. Carrying it forward would mean the new default reached only new installs,
+  // and the people who complained about the tabs are exactly the people who already had it on.
+  // So the switch is reset on the way up, once, and the record is stamped with the new version.
+  const carried = settings.normalize({ version: 1, autoOpenTabs: true });
+  assert.equal(carried.autoOpenTabs, false, 'the old default is not mistaken for a decision');
+  assert.equal(carried.version, 2, 'and the upgrade is recorded, so it happens once');
+
+  // After that, the user's own setting is the only thing that decides.
+  assert.equal(
+    settings.normalize({ version: 2, autoOpenTabs: true }).autoOpenTabs,
+    true,
+    'a deliberate yes survives a round trip'
+  );
+  // And a record that has never been written is simply the new default.
+  assert.equal(settings.normalize({}).autoOpenTabs, false);
 });
 
 test('unknown site ids are dropped, and an empty selection stays empty', () => {
@@ -32,6 +61,25 @@ test('unknown site ids are dropped, and an empty selection stays empty', () => {
   // on means having verified it, so an empty list has to survive a round trip rather than
   // being quietly replaced by the first provider in the registry.
   assert.deepEqual(settings.normalize({ enabledSites: [] }).enabledSites, []);
+});
+
+test('whether an AI may be sent to is not a setting, and an old record cannot say otherwise', () => {
+  // The switch that used to live here was the only way to reach a fan-out into pages that had
+  // never said they were signed in, which comes back as "no answer" from every tab and reads as a
+  // bug. It is gone, and a stored value from it has to go with it: a merge would otherwise carry
+  // the key forward forever, and the popup and the fan-out would disagree about what a switch means.
+  assert.equal('requireSignIn' in settings.DEFAULTS, false, 'not a default any more');
+  assert.equal('requireSignIn' in settings.normalize({}), false, 'and not in a normalised record');
+  assert.equal(
+    'requireSignIn' in settings.normalize({ requireSignIn: false }),
+    false,
+    'a stored false is dropped rather than honoured'
+  );
+  assert.equal(
+    'requireSignIn' in settings.normalize({ requireSignIn: true }),
+    false,
+    'and a stored true too — the key is gone in both directions'
+  );
 });
 
 test('the settle window is clamped into a sane range and always ordered', () => {

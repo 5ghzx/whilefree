@@ -18,6 +18,9 @@
   let lastHref = globalThis.location.href;
   let ready = false;
   let dormant = false;
+  // Whether this page ever put the launcher in. A page that has is the only kind that can put
+  // it back after the dashboard's switch took it away.
+  let overlayWired = false;
   let statusSentAt = 0;
 
   const now = () => Date.now();
@@ -156,18 +159,66 @@
       const message =
         reason === 'off'
           ? 'WhileFree is switched off. Turn it on in the popup.'
-          : reason === 'no-verified-targets'
-            ? 'Nothing sent. Open the popup and switch an AI on.'
-            : reason === 'no-targets'
-              ? 'No AI is switched on. Pick some in the popup.'
-              : reason || 'Could not start the broadcast.';
-      content.overlay.toast(message, 'bad', 9000);
+          : reason === 'no-open-tabs'
+            ? 'Nothing sent: none of your other AIs has a tab open. Open one, or allow new tabs in the popup.'
+            : reason === 'no-verified-targets'
+              ? 'Nothing sent: none of your AIs has said it is signed in yet. Open one, sign in there, and send again.'
+              : reason === 'no-targets'
+                ? 'No AI is switched on. Pick some in the popup.'
+                : reason || 'Could not start the broadcast.';
+      // `card` holds the overview open beside the refusal: every one of these messages is about
+      // the list, and the list is one hover away — or, here, no hover at all.
+      content.overlay.toast(message, 'bad', 9000, { card: true });
       return;
     }
     if (!response.targets || !response.targets.length) {
-      content.overlay.toast('No AI is switched on. Pick some in the popup.', '', 7000);
+      content.overlay.toast('No AI is switched on. Pick some in the popup.', '', 7000, { card: true });
       return;
     }
+  }
+
+  /**
+   * The launcher's handlers.
+   *
+   * A module-level object rather than a literal inside `boot`, because the launcher can be taken
+   * out of the page and put back (the settings page has a switch for it) and a page that has
+   * already booted has no second boot to hang them on.
+   */
+  const overlayHandlers = {
+    onBroadcast: broadcastHere,
+    onOpenAnswer: (answerId) => WF.browser.send({ type: WF.MSG.OPEN_ANSWER, answerId }),
+    onClearAnswers: async () => {
+      const res = await WF.browser.send({ type: WF.MSG.CLEAR_ANSWERS });
+      if (res && res.answers) content.overlay.setAnswers(res.answers);
+    },
+    /**
+     * The one press that fixes the commonest refusal, taken where the refusal was read.
+     *
+     * Off is the master switch, and it lives in the popup — an extension cannot open its own
+     * popup, so "turn it on in the popup" was advice with a walk attached. It is offered here
+     * as turn-*on* only: a corner button that could stop every send is a button nobody means to
+     * press, and stopping is a deliberate act that belongs where the rest of the list is.
+     *
+     * No host permission is asked for here. On Firefox that ask needs the popup's own click, so
+     * an AI the browser has not let the extension into stays silent until the popup is opened —
+     * which is exactly where it was before this button existed.
+     */
+    onTurnOn: async () => {
+      const res = await WF.browser.send({
+        type: WF.MSG.SET_SETTINGS,
+        patch: { broadcastEnabled: true },
+      });
+      if (res && res.settings) {
+        settings = WF.settings.normalize(res.settings);
+        content.overlay.setSettings(settings);
+      }
+      content.overlay.toast('WhileFree is on. Press Ask all again.', 'good', 5000);
+    },
+  };
+
+  /** Put the launcher into a page whose boot has already wired everything else up. */
+  function mountOverlay() {
+    content.overlay.init({ doc: document, site, settings, handlers: overlayHandlers });
   }
 
   // ---------------------------------------------------------------------------
@@ -317,9 +368,9 @@
         return { ok: true, siteId: site.id, url: globalThis.location.href };
       }
 
-      // The turn-on check. The page is the only thing that knows whether it is signed
-      // in — the session lives in the site's own cookies and the DOM is what shows the
-      // result — so turning an AI on opens its tab and asks here.
+      // The sign-in check. The page is the only thing that knows whether it is signed in —
+      // the session lives in the site's own cookies and the DOM is what shows the result —
+      // so an AI whose page has not spoken is asked here, in its own tab.
       case WF.MSG.VERIFY_SITE: {
         const timeout = Math.min(Math.max(Number(msg.timeoutMs) || 20000, 1000), 60000);
         const composer = await content.composer.waitForComposer(document, site, timeout);
@@ -385,12 +436,23 @@
         settings = msg.settings ? WF.settings.normalize(msg.settings) : await WF.storage.getSettings();
         content.overlay.setSettings(settings);
         if (!settings.overlayEnabled) content.overlay.destroy();
+        // Turning the launcher off takes it out of the page; turning it back on has to put it
+        // back, or the switch is a one-way door until the tab is reloaded. Only a page that has
+        // booted has handlers to mount with, and a dormant page mounts on its way back up.
+        else if (overlayWired && !content.overlay.mounted()) mountOverlay();
         // A site switched on while this page was asleep wakes up here, and one switched
         // off goes back to costing nothing.
         if (dormant && WF.settings.siteEnabled(settings, site.id)) {
           dormant = false;
           boot().catch(() => undefined);
         }
+        return { ok: true };
+
+      // Which AIs have a tab open, from the background: pushed when that set changes, and the
+      // reply to the ask the overlay makes when it boots or comes back into view. The overlay
+      // counts the fan-out's reach, and this is its one term this page cannot see for itself.
+      case WF.MSG.OPEN_SITES:
+        content.overlay.setOpenSites(msg.open);
         return { ok: true };
 
       default:
@@ -434,19 +496,8 @@
     net.start();
 
     if (settings.overlayEnabled !== false) {
-      content.overlay.init({
-        doc: document,
-        site,
-        settings,
-        handlers: {
-          onBroadcast: broadcastHere,
-          onOpenAnswer: (answerId) => WF.browser.send({ type: WF.MSG.OPEN_ANSWER, answerId }),
-          onClearAnswers: async () => {
-            const res = await WF.browser.send({ type: WF.MSG.CLEAR_ANSWERS });
-            if (res && res.answers) content.overlay.setAnswers(res.answers);
-          },
-        },
-      });
+      overlayWired = true;
+      mountOverlay();
     }
 
     document.addEventListener('keydown', onKeydown, true);

@@ -15,14 +15,11 @@
   // ---------------------------------------------------------------------------
 
   async function siteOverview(settings) {
-    const tabs = await B.queryTabs({ url: WF.sites.matchPatterns() });
+    // One query for every site, from the same place the send path asks: the popup's `openTabs`
+    // and the engine's "is any of these open" have to be the same answer, or the panel and the
+    // fan-out disagree about where a prompt can land.
+    const openBySite = await bg.engine.openCounts();
     const status = await WF.storage.getSiteStatus();
-    const openBySite = new Map();
-    for (const tab of tabs) {
-      const site = WF.sites.fromUrl(tab.url || '');
-      if (!site) continue;
-      openBySite.set(site.id, (openBySite.get(site.id) || 0) + 1);
-    }
     return WF.sites.list().map((site) => ({
       id: site.id,
       name: site.name,
@@ -34,7 +31,7 @@
       // "not checked", because an AI that is switched on and cannot be sent to is worse
       // information than one that is plainly off.
       verified: bg.engine.isVerified(status[site.id]),
-      openTabs: openBySite.get(site.id) || 0,
+      openTabs: openBySite[site.id] || 0,
       attention: (status[site.id] && status[site.id].attention) || null,
       attentionAt: WF.status.attentionAt(status[site.id]) || null,
       // Whether that attention is still about now. A site with no tab open cannot be asked, so
@@ -373,6 +370,15 @@
         // a send may go out, which asks the page itself a moment later anyway.
         return getState({ refresh: msg.refresh === true });
 
+      // The launcher's reach counts three things, and this is the one a page cannot see for
+      // itself: a content script has no `tabs` API, so it knows about its own tab and nothing
+      // else. Answered here and pushed on change (below), in the same shape, so the page has
+      // one way to read it.
+      case WF.MSG.OPEN_SITES: {
+        const { open } = await currentOpenSites();
+        return { ok: true, open };
+      }
+
       case WF.MSG.SET_SETTINGS: {
         const settings = await bg.store.patchSettings(msg.patch || {});
         return { ok: true, settings };
@@ -381,8 +387,8 @@
       case WF.MSG.TEST_SITE:
         return testSite(msg.siteId);
 
-      // Turning an AI on: open its tab, ask whether it is signed in, and only then let
-      // it be a target. The switch in the popup and the dashboard both come here.
+      // Ask one AI's page whether it is signed in, and write down what it says. A check, not a
+      // switch: it records the reading and leaves `enabledSites` exactly as the user left it.
       case WF.MSG.VERIFY_SITE:
         return bg.engine.verifySite(msg.siteId, { timeoutMs: msg.timeoutMs });
 
@@ -403,6 +409,79 @@
         return undefined;
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Which AIs have a tab open, told to the pages that cannot ask
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The tab set as a signature, for deciding whether anything has actually changed.
+   *
+   * Only *which* AIs are open matters to a reader — the count of tabs per site is the popup's
+   * own business — so a second tab of the same site is not news, and a message into every AI
+   * page is not free.
+   */
+  const openSignature = (open) =>
+    Object.keys(open)
+      .filter((id) => open[id] > 0)
+      .sort()
+      .join(',');
+
+  let lastOpenSignature = null;
+  let openSitesTimer = null;
+
+  async function currentOpenSites() {
+    const open = await bg.engine.openCounts();
+    const signature = openSignature(open);
+    const changed = signature !== lastOpenSignature;
+    lastOpenSignature = signature;
+    return { open, changed };
+  }
+
+  /**
+   * Tell the open AI pages when the set of open AIs changes.
+   *
+   * Without this the launcher's number would only be honest at the moment its page booted or
+   * came back into view: closing the Claude tab while you look at ChatGPT leaves that page
+   * visible, and a pill still promising to ask Claude is the same lie as counting a signed-in
+   * AI with no tab open. Only the pages are told; nothing else listens.
+   */
+  function watchOpenSites() {
+    const tabsApi = B.api && B.api.tabs;
+    if (!tabsApi) return;
+    const schedule = () => {
+      if (openSitesTimer) return;
+      // A short pause rather than one push per event: a fan-out opens its tabs in a burst, and
+      // that is one change to report, not ten. A worker that is suspended before this fires
+      // costs nothing — the next tab event, or the page asking on its way back into view,
+      // tells the same truth a moment later.
+      openSitesTimer = setTimeout(() => {
+        openSitesTimer = null;
+        currentOpenSites()
+          .then(({ open, changed }) =>
+            changed ? bg.store.broadcastToSites({ type: WF.MSG.OPEN_SITES, open }) : null
+          )
+          .catch(() => undefined);
+      }, 200);
+    };
+    for (const event of ['onCreated', 'onRemoved']) {
+      try {
+        tabsApi[event].addListener(schedule);
+      } catch (err) {
+        /* a browser (or a test's fake) without that event: the ask side still answers */
+      }
+    }
+    try {
+      // Navigating one of these tabs into an AI site, or out of one, changes the set too —
+      // but a tab that loads, closes its busy state and redirects is still the same tab, so
+      // only a url is worth asking about.
+      tabsApi.onUpdated.addListener((tabId, changeInfo) => {
+        if (changeInfo && changeInfo.url) schedule();
+      });
+    } catch (err) {
+      /* as above */
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -499,6 +578,7 @@
   installMenus();
   bg.answers.updateBadge();
   ensureAlarms();
+  watchOpenSites();
 
   bg.background = {
     getState,

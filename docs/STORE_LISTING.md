@@ -9,8 +9,8 @@ extension itself is fine.
 
 | Field | Value |
 | --- | --- |
-| Name (Chrome, 45 char max) | `WhileFree: Ask ChatGPT, Claude & Gemini at Once` |
-| Name (Firefox, 50 char max) | `WhileFree: Ask ChatGPT, Claude & Gemini at Once` |
+| Name (manifest — both stores) | `WhileFree: One Prompt, Every AI` |
+| Name (AMO listing field, 50 char max) | `WhileFree: One Prompt, Every AI` |
 | Short description (Firefox, 250 max) | see below |
 | Category | Productivity (Chrome: Tools) |
 | Language | English |
@@ -85,21 +85,33 @@ extension itself is fine.
 
 ## Permission justifications
 
-Chrome review asks for a written reason per permission. These are the answers.
+Chrome review asks for a written reason per permission, and AMO's upload form has a reviewer-notes
+field that wants the same thing. These are the answers. (Measured, not guessed: the 47-character
+name this file used to carry was refused outright by addons-linter with `"/name" must NOT have more
+than 45 characters`, and the 140 floor below was its `KEY_FIREFOX_UNSUPPORTED_BY_MIN_VERSION`
+warning. Both are fixed in the build; re-run `npx addons-linter dist/firefox` before uploading.)
 
 **`storage`** — Stores per-day and per-AI durations (writing, waiting, reading), counts, the user's own
 settings, and the monthly subscription prices the user types in. All of it stays in the browser; nothing
 is transmitted anywhere.
 
-**`scripting`** — Used only to re-inject the content script into the five supported AI sites when the tab
+**`scripting`** — Used only to re-inject the content script into the ten supported AI sites when the tab
 was already open before the extension was installed, was installed/updated, or navigated without a page
 load. No injection happens into any other origin.
 
 **`notifications`** — Optional. Only used when the user switches on "also raise a system notification", to
 say that an answer has landed in a tab the user is not currently looking at.
 
-**Host permissions (`chatgpt.com`, `claude.ai`, `gemini.google.com`, `perplexity.ai`, `chat.deepseek.com`)** —
-These five sites are the entire functionality. On them, the extension: (1) reads the user's own typed
+**`contextMenus`** — One item, *Send selection to every AI*, on a text selection. It exists to make the
+extension's single action reachable from where the text already is. Nothing else is added to any menu,
+and nothing is read from the selection unless that item is clicked.
+
+**Host permissions (the ten AI sites)** — `chatgpt.com` / `chat.openai.com`, `claude.ai`,
+`gemini.google.com`, `perplexity.ai`, `chat.deepseek.com`, `grok.com`, `copilot.microsoft.com`,
+`chat.mistral.ai`, `chat.qwen.ai` / `chat.qwenlm.ai`, `kimi.ai` / `kimi.com` / `kimi.moonshot.cn`. The
+additional hosts are the vendors' own alternate domains: a signed-in session can land on either one,
+and the extension has to be able to type into the tab the user is actually in. These ten sites are the
+entire functionality. On them, the extension: (1) reads the user's own typed
 prompt from a message box, (2) writes that prompt into the corresponding box on the other enabled sites,
 (3) clicks the site's own send button, and (4) observes DOM mutations and element lengths to know whether
 an answer is still arriving so it can time it. It does not read or store the content of any answer.
@@ -123,15 +135,12 @@ source. The extension is fully self-contained.
 
 Five, in this order, each 1280×800 (Chrome) or 1280×800 (Firefox):
 
-1. **The fan-out.** One prompt box on the left, five AI rows on the right with "answered in 8s" beside
-   each, one highlighted as first.
+1. **The fan-out.** One prompt box on the left, **ten** AI rows on the right with "answered in 8s" beside
+   each, one highlighted as first — this shot carries the ten-provider claim, so give it all ten.
 2. **Answers ready.** The panel with a green count, three entries, and Open actions.
 3. **Where the time goes.** The three-way split bar plus the per-day stacked chart.
 4. **Is each subscription earning its keep?** The price inputs and the verdict table.
 5. **Your own benchmark.** The head-to-head table plus the heatmap.
-
-If you add a sixth, show ten AI chips in the fan-out so the ten-provider claim is visible without
-reading the description.
 
 Capture them from the built dashboard, not by retyping any other product's artwork. Use your own
 prompts in the screenshots.
@@ -140,9 +149,14 @@ prompts in the screenshots.
 
 - `browser_specific_settings.gecko.id` is `whilefree@whilefree.app`; keep it stable across releases or
   Firefox treats an update as a different add-on.
-- `strict_min_version` is `115.0` (manifest V3 support with event pages).
+- `strict_min_version` is `140.0`. Manifest V3 event pages only need 115, but
+  `data_collection_permissions` is not understood before 140, and addons-linter warns about exactly
+  that combination — a data declaration the browser ignores is not one. 140 is the 2025 ESR, so the
+  floor costs nobody who is still receiving updates. AMO also warns that the *inherited* Firefox for
+  Android floor is 142: this build is desktop-only (no `gecko_android` key), and declaring one to
+  silence the warning would advertise an Android version nobody has tested. Leave the warning.
 - `data_collection_permissions` is declared as `required: ["none"]`, which is accurate: no data leaves
-  the device.
+  the device. It is mandatory for new AMO submissions since 3 November 2025.
 - Firefox MV3 runs the background as an **event page**, declared with `background.scripts`. The build
   generates this automatically; see `scripts/build.mjs`.
 

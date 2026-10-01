@@ -3,10 +3,11 @@
 //   node scripts/cdp.mjs eval popup @scripts/probes/master-switch.js
 //
 // The switch is a real click on the rendered control, so this tests the popup's own wiring
-// as much as the settings behind it: one press has to leave every row on and the count above
-// the Send button has to agree with the row count. The profile's own settings are read first
-// and written back afterwards, because a probe that leaves the browser in a different state
-// than it found it is a probe nobody runs twice.
+// as much as the settings behind it: one press turns the feature off, the AIs the user picked
+// stay picked, and the row count above the Send button does not move — because turning the
+// feature off is not a way to lose the one-at-a-time sign-in check a site has already passed.
+// The profile's own settings are read first and written back afterwards, because a probe that
+// leaves the browser in a different state than it found it is a probe nobody runs twice.
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const el = (id) => document.getElementById(id);
@@ -20,7 +21,6 @@
     summary: el('target-summary').textContent.trim(),
     master: el('all-switch').getAttribute('aria-checked'),
     hint: el('all-hint').textContent.trim(),
-    strict: el('strict-switch').getAttribute('aria-checked'),
     on: rows().filter((r) => r.on).length,
     rows: rows(),
   });
@@ -30,20 +30,15 @@
 
   const report = { settingsKey, before: read() };
 
-  // One press.
+  // One press: the feature off, the picks kept.
   el('all-switch').click();
   await sleep(1200);
-  report.afterOn = read();
+  report.afterOff = read();
 
-  // And the switch that exposes what it did, which is also the way back to one-at-a-time.
-  el('strict-switch').click();
-  await sleep(900);
-  report.afterStrictBack = { strict: el('strict-switch').getAttribute('aria-checked'), summary: el('target-summary').textContent.trim() };
-
-  // One press again: everything off.
+  // One press again: back on, and the rows it kept are the rows it shows.
   el('all-switch').click();
   await sleep(900);
-  report.afterOff = read();
+  report.afterOnAgain = read();
 
   if (settingsKey) {
     if (original === undefined) await chrome.storage.local.remove(settingsKey);

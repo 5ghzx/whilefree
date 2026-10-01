@@ -103,6 +103,7 @@ function render() {
   renderHeat();
   renderSummaryButton(keys, sum, head);
   renderSites();
+  renderWelcomeSites();
   renderSettings();
   renderData();
 
@@ -479,97 +480,124 @@ function downloadSummary() {
 
 // 9. Sites -------------------------------------------------------------------
 
+/**
+ * One row for one AI: a switch, a colour dot, the name, what its page last said, and a Diagnose
+ * button.
+ *
+ * This is a builder rather than part of `renderSites` because the install step at the top of the
+ * page shows the same list. The two lists have to agree about what a switch means — everywhere now,
+ * on means *this AI is mine* — and one copy of that rule is the only way to keep it that way.
+ */
+function buildSiteRow(site, { diagnose = true, noteHost = 'data-note' } = {}) {
+  const enabled = (settings.enabledSites || []).includes(site.id);
+  // The same rule as the popup, and the same pair of questions: the switch is the user's list, and
+  // the text beside it is what the site's own page has said. On for a site whose page has not
+  // confirmed a session is not a claim that a prompt will reach it — that is what "not checked yet"
+  // on the row is for, and what the send itself enforces.
+  const verified = WF.status.isVerified(siteStatus[site.id]);
+  const on = enabled;
+  const row = document.createElement('div');
+  row.className = 'site-row';
+
+  const button = document.createElement('button');
+  button.className = 'switch';
+  button.setAttribute('role', 'switch');
+  button.setAttribute('aria-checked', String(on));
+  button.setAttribute('aria-label', `${site.name} on`);
+  // Either direction is the list and nothing more: no tab, no page asked. A check is a thing the
+  // user asks for from the row's own Diagnose button, and what a send can reach is decided when the
+  // send happens — so a switch press must not open a tab, and must not refuse to be on.
+  button.addEventListener('click', () => {
+    const list = settings.enabledSites || [];
+    save({
+      enabledSites: on
+        ? list.filter((id) => id !== site.id)
+        : WF.sites.ORDER.filter((id) => id === site.id || list.includes(id)),
+    });
+    if (!on && !verified) {
+      flashNote(
+        `${site.name} is on, and is asked once its page says you are signed in.`,
+        undefined,
+        noteHost
+      );
+    }
+  });
+
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+  dot.style.background = site.color;
+
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = site.name;
+
+  const statusCell = document.createElement('span');
+  statusCell.className = 'dim';
+  const stored = siteStatus[site.id];
+  const attention = stored && stored.attention;
+  // The same rule as the popup, for the same reason: a reading is shown in the present tense
+  // while it is fresh and as history once it is not. A site nobody has looked at since yesterday
+  // cannot be *signed out* — it can only have been, the last time anybody looked — and saying
+  // otherwise on this page is how an AI the user was signed in to was reported as signed out for
+  // a day and quietly left out of every fan-out.
+  const fresh = !!(attention && WF.status.attentionIsFresh(stored));
+  statusCell.textContent = fresh
+    ? WF.attentionLabel(attention)
+    : !enabled
+      ? 'off'
+      : verified
+        ? 'signed in'
+        : 'not checked yet';
+  // Amber for the one state that costs the user a send: switched on, and still nothing on its page
+  // has said it is signed in, so a fan-out will pass it by.
+  if (enabled && !verified && !fresh) statusCell.classList.add('warn');
+  if (attention && !fresh) {
+    const at = WF.status.attentionAt(stored);
+    statusCell.title = `Last time its page was looked at it was showing: ${WF.attentionLabel(
+      attention
+    )}${at ? ` (${WF.util.relativeTime(at)})` : ''}.`;
+  }
+
+  const check = document.createElement('button');
+  check.className = 'btn-quiet';
+  check.textContent = 'Diagnose';
+  check.title = `Check whether ${site.name} has changed its page`;
+  check.addEventListener('click', () => checkSite(site.id));
+
+  row.append(
+    button,
+    dot,
+    name,
+    statusCell,
+    Object.assign(document.createElement('span'), { className: 'spacer' })
+  );
+  // The install step leaves the Diagnose button out: it is a first run, nothing has gone wrong
+  // yet, and ten of them under a heading that says "turn these on" is noise on the one screen
+  // that has to stay obvious.
+  if (diagnose) row.append(check);
+  return row;
+}
+
 function renderSites() {
   const host = el('sites');
   host.innerHTML = '';
+  for (const site of WF.sites.list()) host.append(buildSiteRow(site));
+}
 
+/**
+ * The install step's own copy of the Sites list.
+ *
+ * It is here because the list is the user's and the gate is not: every AI starts on, nothing here
+ * opens a tab, and a send still refuses anything whose page has not said it is signed in — so the one
+ * place to explain that pair of facts is the first screen of a fresh install, next to the switches
+ * they describe, rather than four cards down a dashboard where a first send would find it out.
+ */
+function renderWelcomeSites() {
+  const host = el('welcome-sites');
+  if (!host) return;
+  host.innerHTML = '';
   for (const site of WF.sites.list()) {
-    const enabled = (settings.enabledSites || []).includes(site.id);
-    // The same rule as the popup: on means switched on *and* checked. An AI whose page has
-    // never said it is signed in cannot be sent to, so a switch that claimed otherwise
-    // would be wrong about the only thing it is there to tell you.
-    const verified = WF.status.isVerified(siteStatus[site.id]);
-    const on = enabled && verified;
-    const row = document.createElement('div');
-    row.className = 'site-row';
-
-    const button = document.createElement('button');
-    button.className = 'switch';
-    button.setAttribute('role', 'switch');
-    button.setAttribute('aria-checked', String(on));
-    button.setAttribute('aria-label', `${site.name} on`);
-    button.addEventListener('click', async () => {
-      if (on) {
-        save({
-          enabledSites: (settings.enabledSites || []).filter((id) => id !== site.id),
-        });
-        return;
-      }
-      // Switching one on opens its tab and checks it there; see the popup for the rule.
-      flashNote(`Opening ${site.name}…`);
-      const res = await WF.browser.send({
-        type: MSG.VERIFY_SITE,
-        siteId: site.id,
-        timeoutMs: 30000,
-      });
-      if (res && res.verified) {
-        flashNote(`${site.name} is on.`, 'good');
-      } else {
-        flashNote(
-          `Sign in to ${site.name} in the tab that opened, then press the switch again.`,
-          'bad'
-        );
-      }
-      await load();
-    });
-
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.style.background = site.color;
-
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = site.name;
-
-    const statusCell = document.createElement('span');
-    statusCell.className = 'dim';
-    const stored = siteStatus[site.id];
-    const attention = stored && stored.attention;
-    // The same rule as the popup, for the same reason: a reading is shown in the present tense
-    // while it is fresh and as history once it is not. A site nobody has looked at since yesterday
-    // cannot be *signed out* — it can only have been, the last time anybody looked — and saying
-    // otherwise on this page is how an AI the user was signed in to was reported as signed out for
-    // a day and quietly left out of every fan-out.
-    const fresh = !!(attention && WF.status.attentionIsFresh(stored));
-    statusCell.textContent = fresh
-      ? WF.attentionLabel(attention)
-      : enabled && !verified
-        ? 'not checked'
-        : verified
-          ? 'signed in'
-          : 'closed';
-    if (attention && !fresh) {
-      const at = WF.status.attentionAt(stored);
-      statusCell.title = `Last time its page was looked at it was showing: ${WF.attentionLabel(
-        attention
-      )}${at ? ` (${WF.util.relativeTime(at)})` : ''}.`;
-    }
-
-    const check = document.createElement('button');
-    check.className = 'btn-quiet';
-    check.textContent = 'Diagnose';
-    check.title = `Check whether ${site.name} has changed its page`;
-    check.addEventListener('click', () => checkSite(site.id));
-
-    row.append(
-      button,
-      dot,
-      name,
-      statusCell,
-      Object.assign(document.createElement('span'), { className: 'spacer' }),
-      check
-    );
-    host.append(row);
+    host.append(buildSiteRow(site, { diagnose: false, noteHost: 'welcome-note' }));
   }
 }
 
@@ -611,10 +639,6 @@ function renderSettings() {
     ['autoCapture', 'Send along a prompt typed in an AI\u2019s own box'],
     ['lockstep', 'Hold a prompt back unless every AI is ready'],
     ['groupTabs', 'Put the broadcast\u2019s tabs in one group (Chrome only)'],
-    [
-      'requireSignIn',
-      'Only send to an AI that is signed in',
-    ],
     ['focusOnRetry', 'Bring a tab forward if a site will not accept a prompt in the background'],
     ['badgeEnabled', 'Show the answered count on the toolbar icon'],
     ['chimeEnabled', 'Chime when an answer lands'],
@@ -790,8 +814,8 @@ async function doWipe() {
   flashNote('Everything deleted.', 'good');
 }
 
-function flashNote(message, kind) {
-  const host = el('data-note');
+function flashNote(message, kind, hostId) {
+  const host = el(hostId || 'data-note');
   host.innerHTML = `<div class="note ${kind || ''}">${U.escapeHtml(message)}</div>`;
   setTimeout(() => {
     if (host.innerHTML.includes(message.slice(0, 24))) host.innerHTML = '';

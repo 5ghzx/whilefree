@@ -5,6 +5,7 @@ import '../lib/protocol.js';
 import '../lib/sites.js';
 import '../lib/storage.js';
 import '../lib/settings.js';
+import '../lib/reach.js';
 import '../lib/stats.js';
 
 const U = WF.util;
@@ -32,15 +33,15 @@ async function load() {
 }
 
 /**
- * Which AIs a prompt would actually go to.
+ * Two questions that were one, and had to be pulled apart.
  *
- * In careful mode that is the switched-on ones a page has confirmed; with the master switch on
- * it is every AI that is switched on, whatever its last reading said — the page still gets its
- * say at the moment of sending, per AI, and it says it in the job card rather than by quietly
- * leaving that AI out of the fan-out.
+ * The switch is the user's ask: this AI is one of mine. Whether a prompt can reach it *right now*
+ * is the page's answer, and it changes on its own — a tab that closed, a session that expired.
+ * Drawing the switch from both at once made every provider look switched off on a fresh install,
+ * which was not what was stored and not anything the user had chosen. So the switch shows the ask,
+ * the text on the row shows the answer, and a fan-out only goes where the two agree (engine).
  */
-const strictMode = () => !state || !state.settings || state.settings.requireSignIn !== false;
-const isUsable = (site) => !!site.enabled && (!strictMode() || !!site.verified);
+const isOn = (site) => !!site.enabled;
 
 /**
  * Re-read whenever the background writes anything we display. That covers answers
@@ -88,15 +89,16 @@ function render() {
   renderInFlight();
   renderToday();
 
-  const strict = settings.requireSignIn !== false;
   el('chime-switch').setAttribute('aria-checked', String(!!settings.chimeEnabled));
   el('tabs-switch').setAttribute('aria-checked', String(!!settings.autoOpenTabs));
+  // The switch says what the default does, because the default is the surprising half: a
+  // send that reaches seven AIs and not the other three should be readable off this line
+  // rather than discovered in the job card.
+  el('tabs-hint').textContent = settings.autoOpenTabs
+    ? 'On: an AI with no tab open gets one, in the background.'
+    : 'Off: a send only reaches the AIs you already have open.';
   el('newchat-switch').setAttribute('aria-checked', String(settings.sendMode === 'new_chat'));
   el('lockstep-switch').setAttribute('aria-checked', String(!!settings.lockstep));
-  el('strict-switch').setAttribute('aria-checked', String(strict));
-  el('strict-hint').textContent = strict
-    ? 'On: an AI joins the fan-out once its page has said it is signed in.'
-    : 'Off: every switched-on AI is asked. A page that needs you says so on its own row.';
 
   // The master switch reads the feature, not the rows underneath it.
   //
@@ -111,14 +113,26 @@ function render() {
     ? 'On: one Send asks the AIs below at once.'
     : 'Off: nothing is sent. The AIs you picked are kept.';
 
-  // Counted the same way the switches are drawn, so the number above the button is never a
-  // promise the fan-out will not keep: in careful mode that means switched on *and* checked.
-  const enabled = state.sites.filter(isUsable);
+  // The number above the button keeps the fan-out's own promise, and the reach is what the
+  // promise is about — so it counts the AIs a prompt can actually be delivered to. Ten switched
+  // on and none signed in is a real state on a fresh install, and it should read as a fraction
+  // rather than as the silence it used to be. The conjunction behind the fraction is
+  // `lib/reach.js`, because the launcher in the page quotes this same sentence and the two used to
+  // disagree in exactly the case the switch below is about: a signed-in AI with no tab open reads
+  // *closed* on its row and is skipped by the send, so it cannot be part of what this line promises.
+  const summary = WF.reach.summarize(
+    state.sites.map((site) => ({ on: isOn(site), verified: !!site.verified, open: !!site.openTabs })),
+    { autoOpenTabs: settings.autoOpenTabs }
+  );
   el('target-summary').textContent = !featureOn
     ? 'WhileFree is off. Nothing will be sent.'
-    : enabled.length
-      ? `Goes to ${enabled.length} AI${enabled.length === 1 ? '' : 's'}.`
-      : 'No AI switched on yet.';
+    : !summary.on
+      ? 'No AI switched on yet.'
+      : summary.detail && summary.reach < summary.on
+        ? `${summary.title} — ${WF.reach.fold(summary.detail)}.`
+        : // Everything the list asks for can be reached, where the plain count is already the whole
+          // answer and a second sentence only repeats it.
+          `${summary.title}.`;
   // The button follows the master switch, so "off" is visible before a prompt is typed into a box
   // nothing would carry.
   el('send').disabled = !featureOn || !el('prompt').value.trim() || busy;
@@ -132,10 +146,10 @@ function renderSites(settings) {
     const row = document.createElement('div');
     row.className = 'site';
 
-    // A switch is on only when the AI is both switched on and checked — unless the user has
-    // turned the checking off, in which case there is nothing left to check against and the
-    // switch follows the setting it does control.
-    const on = isUsable(site);
+    // The switch is the user's list and nothing else: on means this AI is one of theirs. Whether
+    // it can be reached right now is the text beside it — the page's answer, which changes without
+    // anyone pressing anything, and which is why the two cannot be the same value.
+    const on = isOn(site);
     const switchBtn = document.createElement('button');
     switchBtn.className = 'switch';
     switchBtn.setAttribute('role', 'switch');
@@ -165,13 +179,17 @@ function renderSites(settings) {
     }
     if (seen) {
       stateEl.classList.add('warn');
-      // With the checking off, the reading is still shown — it is the difference between an AI
-      // that answers and one that will ask you to sign in — but it no longer means "left out".
-      stateEl.textContent = isUsable(site)
-        ? `${WF.attentionLabel(seen)} · still asked`
-        : WF.attentionLabel(seen);
-    } else if (site.enabled && !site.verified && strictMode()) {
-      stateEl.textContent = 'not checked';
+      // A page that needs you is the reason its AI is left out, and in this direction there is
+      // no second reading to soften it with: a fresh "signed out" is a site no prompt can reach.
+      stateEl.textContent = WF.attentionLabel(seen);
+    } else if (!site.enabled) {
+      stateEl.textContent = 'off';
+    } else if (!site.verified) {
+      // Switched on, nothing contradicts it, and no page has confirmed a session either. It is
+      // flagged rather than quietly shown as on, because in this state a send skips it — and that
+      // is the one thing this text is here to say.
+      stateEl.classList.add('warn');
+      stateEl.textContent = 'not checked yet';
     } else if (site.openTabs) {
       stateEl.textContent = `${site.openTabs} tab${site.openTabs === 1 ? '' : 's'} open`;
     } else {
@@ -411,7 +429,7 @@ async function patch(values) {
   // as long as it takes for something else to write storage. The background is the only side that
   // knows both halves, so ask it — which is also what makes the master switch's own state honest,
   // since it is derived from the rows rather than stored.
-  if (values && ('enabledSites' in values || 'requireSignIn' in values)) await load();
+  if (values && 'enabledSites' in values) await load();
 }
 
 /**
@@ -463,68 +481,34 @@ async function askForAccess(siteIds) {
 /**
  * Turn an AI on or off.
  *
- * Turning one on is deliberately the long version: the background opens that AI's tab,
- * brings it to the front, and asks its page whether it is signed in. A fan-out to a site
- * nobody is signed in to is the failure that reads as our bug — "there was no answer" —
- * so the switch only goes on when the page has said yes, and the tab it opened is where
- * the sign-in happens.
+ * Both directions are the user's list and nothing else: no tab is opened, no page is asked. That is
+ * the point of the change — when switching one on meant "and its page has now confirmed a session",
+ * a fresh install drew every switch off, and turning the ten providers on meant ten tabs, ten
+ * sign-in checks and ten presses. The list is the ask; the pages answer for themselves when they are
+ * open, and a send is where the answer is enforced.
  */
 async function toggleSite(siteId, on) {
   const enabled = new Set(state.settings.enabledSites || []);
   const site = state.sites.find((entry) => entry.id === siteId) || { id: siteId, name: siteId };
 
-  if (!on) {
-    enabled.delete(siteId);
-    await patch({ enabledSites: WF.sites.ORDER.filter((id) => enabled.has(id)) });
-    return;
-  }
-
-  // With the check switched off there is nothing to run, so the switch is just a switch: one
-  // press, no tab opened in front of the user, no second press to "do it again now that you are
-  // signed in". That is the whole point of the master switch above — turning an AI on by hand,
-  // one at a time, through a check that can say no, is what the user asked not to have to do.
-  if (!strictMode()) {
-    // Ask before the switch is believed: an AI the browser has not let us into would be
-    // switched on and then do nothing at all, which is the worst of both worlds.
+  if (on) {
+    // A page the browser has never let us into cannot answer for itself, so the grant is asked for
+    // here, where the click still counts as consent: Firefox takes the request only from a gesture.
     const stillShut = await askForAccess([siteId]);
     if (stillShut.length) {
-      note(
-        `Firefox has not given this extension access to ${nameOf(siteId)}. Allow it in the prompt, then press again.`
-      );
+      note(`Firefox has not given this extension access to ${nameOf(siteId)} yet.`);
       await load();
       return;
     }
     enabled.add(siteId);
-    await patch({ enabledSites: WF.sites.ORDER.filter((id) => enabled.has(id)) });
-    return;
+  } else {
+    enabled.delete(siteId);
   }
 
-  // The check below is the page answering, and a page the browser never let us into cannot
-  // answer — so the grant is asked for first, here, where the click still counts as consent.
-  const stillShut = await askForAccess([siteId]);
-  if (stillShut.length) {
-    note(`Firefox has not given this extension access to ${nameOf(siteId)} yet.`);
-    await load();
-    return;
+  await patch({ enabledSites: WF.sites.ORDER.filter((id) => enabled.has(id)) });
+  if (on && !site.verified) {
+    note(`${site.name} is on, and is asked once its page says you are signed in.`);
   }
-
-  // Switching one on opens its tab and checks it before it counts as on. The switch has to
-  // be redrawn from what the background stored: a check that failed takes the AI straight
-  // back off the list, and a switch that still looked on would be the wrong story.
-  note(`Opening ${site.name}…`);
-  const res = await WF.browser.send({ type: MSG.VERIFY_SITE, siteId, timeoutMs: 30000 });
-  if (!res || res.error) {
-    note(`Could not open ${site.name}.`);
-    await load();
-    return;
-  }
-  if (!res.verified) {
-    note(`Sign in to ${site.name} in the tab that opened, then press the switch again.`);
-    await load();
-    return;
-  }
-  note(`${site.name} is on.`);
-  await load();
 }
 
 async function send() {
@@ -544,11 +528,13 @@ async function send() {
     el('send-result').textContent =
       reason === 'off'
         ? 'WhileFree is switched off. Turn it on at the top.'
-        : reason === 'no-targets'
-          ? 'Switch on at least one AI above.'
-          : reason === 'no-verified-targets'
-            ? 'Switch on an AI first.'
-            : `Could not send: ${U.escapeHtml(String(reason))}`;
+        : reason === 'no-open-tabs'
+          ? 'Nothing was sent: none of your AIs has a tab open. Open one, or turn on “Open a tab for AIs you have not opened”.'
+          : reason === 'no-targets'
+            ? 'Switch on at least one AI above.'
+            : reason === 'no-verified-targets'
+              ? 'Nothing was sent: none of your AIs has said it is signed in yet. Open one, sign in there, and send again.'
+              : `Could not send: ${U.escapeHtml(String(reason))}`;
     return;
   }
 
@@ -665,10 +651,9 @@ function wire() {
   //
   // Off stops every send — the engine, the capture path and the context menu all read this one
   // flag before they do anything — and leaves the per-AI switches alone, so turning it back on
-  // asks exactly the AIs it asked before. It deliberately does *not* write `enabledSites` or
-  // `requireSignIn`: rewriting the list is what made an off switch cost a re-selection, and
-  // flipping the careful-mode flag behind the user's back meant the switch next to this one
-  // changed under them too.
+  // asks exactly the AIs it asked before. It deliberately does *not* write `enabledSites`:
+  // rewriting the list is what made an off switch cost a re-selection, and the sign-in check a
+  // site has passed is not something a stop button should be allowed to spend.
   el('all-switch').addEventListener('click', async () => {
     const on = state.settings.broadcastEnabled !== false;
     // Turning it *on* is when the browser is asked about the sites the user has picked and it has
@@ -688,15 +673,6 @@ function wire() {
         ? `WhileFree is on, except ${stillShut.map(nameOf).join(', ')}: the browser has not allowed this extension into ${stillShut.length === 1 ? 'that site' : 'those sites'} yet.`
         : 'WhileFree is on.'
     );
-  });
-  el('strict-switch').addEventListener('click', () => {
-    const next = strictMode(); // turning the switch off means turning the checking off
-    note(
-      next
-        ? 'Every switched-on AI is asked from now on.'
-        : 'An AI goes back to being checked before it is asked.'
-    );
-    return patch({ requireSignIn: !next });
   });
   el('clear-answers').addEventListener('click', clearAnswers);
   el('cancel-job').addEventListener('click', cancelJob);

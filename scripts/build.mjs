@@ -78,7 +78,13 @@ function firefoxManifest(base, files) {
     browser_specific_settings: {
       gecko: {
         id: 'whilefree@whilefree.app',
-        strict_min_version: '115.0',
+        // 140, not 115. `data_collection_permissions` is only understood from Firefox 140, and a
+        // declaration the browser cannot read is not a declaration: addons-linter warns exactly
+        // that below 140. 140 is also the 2025 ESR, so the floor excludes nobody who is still
+        // getting updates. The inherited Android floor (142) is left to warn, because the honest
+        // answer is that this build is desktop-only -- declaring `gecko_android` to silence it
+        // would advertise an Android version nobody has tested.
+        strict_min_version: '140.0',
         // Nothing is collected, sent or sold. Declared explicitly because Firefox
         // asks, and because "none" is the whole privacy story of this extension.
         data_collection_permissions: { required: ['none'] },
@@ -154,6 +160,50 @@ async function verifyManifestFiles(outDir, manifest) {
   return referenced.length;
 }
 
+/**
+ * Both builds must describe the same extension.
+ *
+ * The two manifests are generated from one base, so a difference between them is a decision
+ * someone made — and the point of writing the decisions down here is that the next one has to be
+ * made loudly rather than accidentally. A key that drifts (a permission added to one browser's
+ * list, a content script dropped from one `js` array) is invisible in review and shows up as a
+ * feature that works in one browser and not the other, which is exactly the bug this repository
+ * would rather not ship again.
+ *
+ * The exceptions are the only places the two can legitimately differ:
+ *
+ *   background            a service worker module against an event page's script list
+ *   permissions           Chrome's `offscreen`, which Firefox has no equivalent of
+ *   minimum_chrome_version  Chrome only, by definition
+ *   browser_specific_settings  Firefox only, by definition
+ */
+const PARITY_EXCEPTIONS = ['background', 'permissions', 'minimum_chrome_version', 'browser_specific_settings'];
+
+function verifyParity(chrome, firefox) {
+  const keys = new Set([...Object.keys(chrome), ...Object.keys(firefox)]);
+  const drift = [];
+  for (const key of keys) {
+    if (PARITY_EXCEPTIONS.includes(key)) continue;
+    const a = JSON.stringify(chrome[key]);
+    const b = JSON.stringify(firefox[key]);
+    if (a !== b) drift.push(`  ${key}\n    chrome:  ${a}\n    firefox: ${b}`);
+  }
+
+  // The one exception that must still be exact everywhere except the extra permission: a
+  // permission that is only in the Firefox list is an API call the Chrome build would fail on.
+  const chromeOnly = (chrome.permissions || []).filter((p) => !(firefox.permissions || []).includes(p));
+  const firefoxOnly = (firefox.permissions || []).filter((p) => !(chrome.permissions || []).includes(p));
+  if (firefoxOnly.length) drift.push(`  permissions only in firefox: ${firefoxOnly.join(', ')}`);
+  const unexpected = chromeOnly.filter((p) => p !== 'offscreen');
+  if (unexpected.length) drift.push(`  permissions only in chrome: ${unexpected.join(', ')}`);
+
+  if (drift.length) {
+    throw new Error(
+      `the chrome and firefox manifests disagree outside the known differences:\n${drift.join('\n')}`
+    );
+  }
+}
+
 async function countFiles(dir) {
   let total = 0;
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -176,6 +226,15 @@ async function run() {
     if (!TARGETS.includes(target)) throw new Error(`Unknown target: ${target}`);
     const result = await buildOne(target, base, files);
     console.log(`built ${result.target}  ->  ${path.relative(root, result.outDir)}  (${result.files} files)`);
+  }
+
+  // Only when both were built in this run: with one target asked for, the other directory may
+  // be from an older tree, and comparing against that would report drift that is not there.
+  if (targets.length > 1) {
+    const readManifest = async (target) =>
+      JSON.parse(await readFile(path.join(DIST, target, 'manifest.json'), 'utf8'));
+    verifyParity(await readManifest('chrome'), await readManifest('firefox'));
+    console.log('both builds describe the same extension');
   }
 }
 

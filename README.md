@@ -14,26 +14,47 @@ no analytics. Nothing is sold, gated, trialled or throttled.
 ## What it does
 
 **Ask once, get several answers.** Type in whichever AI you are already in and press *Ask all*.
-The same prompt goes to every AI you switched on — the one you are looking at included — all at
-once. Each one answers in its own tab, in your own account, in its standard mode. The tabs it has
-to open go into one window of their own, behind the one you are working in, so a fan-out never
-lands on top of what you were doing — and because they are in one window, closing it once the
-answers are in takes all of them with it.
+The same prompt goes to every AI you switched on that is **already open** — the one you are looking
+at included — all at once. Each one answers in its own tab, in your own account, in its standard
+mode.
+
+Nothing is opened on your behalf unless you ask for it. A fan-out used to open a tab for every AI
+that was closed, which meant one prompt typed in an existing conversation could leave seven new tabs
+behind you; now those AIs are reported as *skipped* and the ones you have open get the prompt. The
+switch that opens tabs is in the popup (*Open a tab for AIs you have not opened*), and when it is on
+those tabs land in one window of their own, behind the one you are working in, so a fan-out never
+lands on top of what you were doing — and closing that window once the answers are in takes all of
+them with it.
 
 **One switch, if you want one.** The popup opens with the master switch at the top of the *Send to*
 card, and it is the feature itself rather than a shortcut for the switches below it. Off means nothing
 is sent anywhere — *Send*, the right-click menu, and a prompt typed into an AI's own page all stop —
-and the AIs you picked stay picked, so turning it back on asks exactly the AIs it asked before. The
-per-AI switches underneath work the way they always did, and **Only send to AIs that say they are
-signed in** puts the careful behaviour below back for anyone who prefers it.
+and the AIs you picked stay picked, so turning it back on asks exactly the AIs it asked before. What
+it will not do is spend a sign-in check: switching the feature off and on again leaves the per-AI
+switches exactly as they were.
 
-**Switching one on checks it first.** With that switch on, pressing an AI's own switch opens its tab
-and asks the page whether it is signed in. Only a yes puts it on the list, so a prompt never
-disappears into a signed-out tab and comes back as "no answer", which is the one failure that reads
-as a bug here rather than as a tab that needs you. A check is not a licence to stop looking either:
-the page is asked again a moment before a prompt is typed into it — and once more before that, because
-a page that is still loading has signed-out chrome on screen for as long as its session takes to
-arrive. A session that really has ended is caught at the moment it matters, named, and left out.
+**Your list is yours, and a send only goes where a page agrees.** An AI's own switch is the list of
+AIs you use: turning one on opens nothing and asks nobody. What decides a fan-out is the page — a
+prompt is typed only into a tab whose own page has said you are signed in, and one that has not said
+so is drawn as *not checked yet* and passed by, rather than reported as a pile of silence, which is
+the one failure that reads as a bug here rather than as a tab that needs you. There is no setting for
+the gate and nothing to choose: an AI that cannot be reached is not a target, and a switch that said
+otherwise would only produce silence. A reading is not a licence to stop looking either: the page is
+asked again a moment before a prompt is typed into it — and once more before that, because a page
+that is still loading has signed-out chrome on screen for as long as its session takes to arrive. A
+session that really has ended is caught at the moment it matters, named, and left out.
+
+**The corner says what a press will reach.** The launcher at the bottom right of every AI page counts
+the AIs a prompt can actually be delivered to — switched on, signed in, and, while *Open a tab for
+AIs you have not opened* is off, already open — so ten switched on and none signed in reads *Ask 0 of
+10* rather than promising ten answers, and an AI whose row says *closed* is not inside the number
+either. It is the same count, in the same words, as the popup's *Goes to X of Y*, and the page learns
+which AIs have tabs open from the background rather than guessing. Hover it and the list opens: every
+AI, what its own page last said (*signed in*, *not checked yet*, *off*, or *closed* for a signed-in AI
+with no tab open), with the one you are looking at marked as *this page*. A press that gets refused holds that
+list open beside the reason, and the master switch being off is named on the pill with the one press
+that fixes it. What a refusal says also leaves on its own — a deadline rather than a bare timer, so a
+tab that was in the background cannot come back to a message that is no longer true — and it has a ×.
 
 **The panel asks rather than remembers.** Every time the popup opens, each AI that has a tab open is
 asked what its page is showing, so a reading from an hour ago is never presented as the present tense.
@@ -153,6 +174,16 @@ works too, with a disposable profile:
 npx web-ext run --source-dir dist/firefox
 ```
 
+### First run
+
+Installing opens the dashboard at its welcome card, and that card is the one thing WhileFree asks of
+you: which AIs you use. Every AI starts switched **on**, because that list is what you want rather
+than what a page has confirmed — so there is nothing to decide before the first prompt, and nothing
+is switched off out of the box. The first prompt is where the other half shows up: it goes to the AIs
+whose own page has said you are signed in, the rest are named as left out, and a row still reading
+*not checked yet* is one whose page has not been asked yet. The same list sits in the *Sites* card
+below, so it can be changed at any time without reinstalling.
+
 ### The development loop
 
 ```bash
@@ -172,9 +203,10 @@ launcher at the bottom right of the page.
 
 ## Using it
 
-1. Open any of the five AIs and type your prompt as usual.
-2. Press **Ask all N** in the small launcher. The prompt stays in *your* box on that page — press
-   that site's own send button when you are ready, or leave it.
+1. Open any of the AIs and type your prompt as usual.
+2. Press **Ask all N** in the small launcher — *N* is the number of AIs a prompt can reach, and
+   hovering it lists them. The prompt stays in *your* box on that page — press that site's own send
+   button when you are ready, or leave it.
 3. Carry on with your work. The toolbar badge counts the answers as they land.
 4. Click an entry in the panel to jump to that conversation. The entry clears itself.
 

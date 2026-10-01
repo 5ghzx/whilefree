@@ -20,6 +20,7 @@ import '../lib/settings.js';
 import '../lib/stats.js';
 import '../lib/badge.js';
 import '../lib/status.js';
+import '../lib/reach.js';
 import '../lib/files.js';
 import './store.js';
 import './tracker.js';

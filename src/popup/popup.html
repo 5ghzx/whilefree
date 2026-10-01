@@ -32,7 +32,7 @@
         <textarea
           id="prompt"
           rows="3"
-          placeholder="Type once. Each switched-on AI answers in its own tab."
+          placeholder="Type once. Each AI you are signed in to answers in its own tab."
           aria-label="Your prompt"
         ></textarea>
         <div class="row" style="margin-top: 9px">
@@ -96,22 +96,16 @@
         <div id="sites"></div>
         <div class="sep"></div>
         <div class="row">
-          <span>Only send to AIs that say they are signed in</span>
-          <span class="spacer"></span>
-          <button class="switch" id="strict-switch" role="switch" aria-checked="true" aria-label="Check sign-in first"></button>
-        </div>
-        <div class="hint" id="strict-hint"></div>
-        <div class="sep"></div>
-        <div class="row">
           <span>A chime when an answer lands</span>
           <span class="spacer"></span>
           <button class="switch" id="chime-switch" role="switch" aria-checked="true" aria-label="Chime"></button>
         </div>
         <div class="row" style="margin-top: 10px">
-          <span>Open tabs for AIs that are closed</span>
+          <span>Open a tab for AIs you have not opened</span>
           <span class="spacer"></span>
-          <button class="switch" id="tabs-switch" role="switch" aria-checked="true" aria-label="Open tabs"></button>
+          <button class="switch" id="tabs-switch" role="switch" aria-checked="false" aria-label="Open tabs"></button>
         </div>
+        <div class="hint" id="tabs-hint">Off: a send only reaches the AIs you already have open.</div>
         <div class="row" style="margin-top: 10px">
           <span>Start a fresh chat for each prompt</span>
           <span class="spacer"></span>

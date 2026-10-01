@@ -36,17 +36,28 @@
 
     <main class="wrap">
       <div id="welcome" class="card welcome" hidden>
-        <h2>You are set up.</h2>
+        <h2>One thing first: the AIs you use.</h2>
         <p class="muted">
-          Open ChatGPT, Claude, Gemini, Perplexity or DeepSeek, type a prompt, and press
-          <strong>Ask all</strong> in the small launcher at the bottom right of the page. The same prompt
-          goes to the others you switched on, in the tabs you are already signed in to.
+          WhileFree sends a prompt only to an AI whose own page has said you are signed in there.
+          It never sees a password, never reads a cookie, never solves a check, and never works
+          around a usage limit — when a site is unhappy it says so and stops.
         </p>
         <p class="muted">
-          Signature yourself into each AI once. This extension never sees a password, never solves a
-          check, and never works around a usage limit — when a site is unhappy it says so and stops.
+          Every AI below starts <strong>on</strong>, because that list is what you use rather than what
+          a page has confirmed — so nothing is switched off for you. A row reading <em>not checked
+          yet</em> is one whose page has not been asked yet: open it in a tab and sign in there, and
+          it joins the next send. A switch reading <strong>off</strong> is one you took out, and a send
+          only goes where a page agrees.
         </p>
-        <button class="btn-primary" id="welcome-done">Got it, hide this</button>
+        <div id="welcome-note"></div>
+        <div id="welcome-sites"></div>
+        <p class="muted">
+          Then open one of them, type a prompt, and press <strong>Ask all</strong> in the small
+          launcher at the bottom right of the page: the same prompt goes to the others you switched
+          on, in the tabs you are already signed in to. You can change this list at any time in the
+          <strong>Sites</strong> card below.
+        </p>
+        <button class="btn-primary" id="welcome-done">Done — open the dashboard</button>
       </div>
 
       <!-- 1. Where the time goes ------------------------------------------- -->
@@ -218,8 +229,10 @@
       <section class="card">
         <div class="card-title">Sites</div>
         <p class="card-note">
-          A broadcast goes to every site switched on, including the one you asked from. Switching one
-          on opens its tab. The same switch, pressed again, turns one back off.
+          A broadcast goes to every site switched on — including the one you asked from — and only to
+          the ones whose page has said it is signed in. The switch is your list and nothing more:
+          switching one on opens no tab and asks nobody, and a row still reading <em>not checked
+          yet</em> is one a send passes by until its page has said you are signed in there.
         </p>
         <div id="sites"></div>
         <div class="row">

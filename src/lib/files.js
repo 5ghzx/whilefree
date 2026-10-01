@@ -20,6 +20,9 @@
     'lib/stats.js',
     'lib/badge.js',
     'lib/status.js',
+    // After status.js: the reach counts the switch, the page's own reading, and the tabs a
+    // page cannot see for itself.
+    'lib/reach.js',
     // Last, because it describes the lists above it. The background reads it to
     // re-inject the content scripts into tabs that predate the extension load.
     'lib/files.js',

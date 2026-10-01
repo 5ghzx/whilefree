@@ -56,7 +56,9 @@ const listeners = {
   startup: [],
   alarm: [],
   notifyClick: [],
+  tabCreated: [],
   tabRemoved: [],
+  tabUpdated: [],
   tabActivated: [],
   windowFocus: [],
   menuClick: [],
@@ -214,7 +216,9 @@ globalThis.chrome = {
       if (message && message.type === globalThis.WF.MSG.SEND) await throughGate(tabId);
       return typeof reply === 'function' ? reply(message) : reply;
     },
+    onCreated: { addListener: (fn) => listeners.tabCreated.push(fn) },
     onRemoved: { addListener: (fn) => listeners.tabRemoved.push(fn) },
+    onUpdated: { addListener: (fn) => listeners.tabUpdated.push(fn) },
     onActivated: { addListener: (fn) => listeners.tabActivated.push(fn) },
   },
   action: {
@@ -351,6 +355,9 @@ function addTab(url, reply, options = {}) {
     windowId: options.windowId === undefined ? USER_WINDOW : options.windowId,
   };
   tabs.set(id, tab);
+  // A browser tells whoever is watching that a tab appeared; the background uses that to work out
+  // which AIs are open, so the fake has to do it too or that path would only run in a real browser.
+  for (const handler of listeners.tabCreated) handler({ id, url, windowId: tab.windowId });
   // A tab on an origin the browser has not granted the extension gets no content script at
   // all — not in a tab the user opened, and not in one we opened ourselves. There is nothing
   // to answer and nothing to say hello, which is exactly the state that used to be silent.
@@ -374,16 +381,26 @@ function openAiTab(siteId, reply) {
   return addTab(site.matchPatterns[0].replace('*', ''), reply).id;
 }
 
+/** Close a tab the way a browser does: gone, and everyone watching is told. */
+function closeTab(tabId) {
+  tabs.delete(tabId);
+  siteTabs.delete(tabId);
+  for (const handler of listeners.tabRemoved) handler(tabId);
+}
+
 const state = () => send({ type: WF.MSG.GET_STATE });
 
-test('turning an AI on asks its tab first and moves nothing when the answer is yes', async () => {
+test('a check records what the page says and never edits the switch list', async () => {
+  // The list is the user's and the reading is the page's. This is where that is enforced for the
+  // check itself: it used to write enablement, so a signed-out verdict took a deliberately
+  // switched-on AI off the list — an unrelated look at a page could undo a choice.
   const tab = openAiTab('chatgpt');
-  await patch({ enabledSites: [], autoOpenTabs: false });
+  await patch({ enabledSites: ['chatgpt'], autoOpenTabs: false });
 
   const check = await send({ type: WF.MSG.VERIFY_SITE, siteId: 'chatgpt' });
   assert.equal(check.verified, true);
   assert.deepEqual(calls.activated, [], 'no tab was raised, because none needed to be');
-  assert.equal((await state()).settings.enabledSites.includes('chatgpt'), true, 'and the switch is on');
+  assert.ok((await state()).settings.enabledSites.includes('chatgpt'), 'and the switch is where it was');
 
   // The one outcome the user has to act on is the one that comes to the front.
   siteTabs.set(
@@ -392,10 +409,19 @@ test('turning an AI on asks its tab first and moves nothing when the answer is y
       verify: { ok: true, siteId: 'chatgpt', signedIn: false, hasComposer: true, attention: WF.ATTENTION.SIGNED_OUT },
     })
   );
-  await send({ type: WF.MSG.SET_SETTINGS, patch: { enabledSites: [] } });
   const bad = await send({ type: WF.MSG.VERIFY_SITE, siteId: 'chatgpt' });
   assert.equal(bad.verified, false);
   assert.ok(calls.activated.includes(tab), 'a signed-out page is put in front of the user');
+  const afterCheck = await state();
+  assert.ok(
+    afterCheck.settings.enabledSites.includes('chatgpt'),
+    'a no is recorded, and the switch stays exactly as the user left it'
+  );
+  assert.equal(
+    afterCheck.sites.find((site) => site.id === 'chatgpt').verified,
+    false,
+    'the reading is the only thing that changed'
+  );
 });
 
 const patch = (values) => send({ type: WF.MSG.SET_SETTINGS, patch: values });
@@ -431,6 +457,24 @@ async function waitUntilIdle(budgetMs = 8000) {
 }
 
 /**
+ * Every site already checked, the way each switch leaves one after its page has said yes.
+ *
+ * This is the baseline the tests start from, in place of the settings flag that used to stand in
+ * for it. Reaching a signed-in page is not a preference any more: a broadcast only starts for a
+ * site whose record says a page has answered, so a test about pacing, windows or capture has to
+ * begin with sites that are already reachable or it would fail for a reason it is not testing.
+ * A test that wants the unchecked state clears this itself.
+ */
+function verifiedAll() {
+  const now = Date.now();
+  const statuses = {};
+  for (const site of WF.sites.list()) {
+    statuses[site.id] = { verifiedAt: now, hasComposer: true, attention: null, at: now };
+  }
+  return statuses;
+}
+
+/**
  * A fresh browser between tests.
  *
  * The engine remembers which tab each site is in, and the record lives in storage, so
@@ -454,17 +498,14 @@ beforeEach(async () => {
     autoOpenTabs: false,
     groupTabs: false,
     singleWindow: false,
-    // Sign-in gating has its own tests; every other test starts with sites that are
-    // already checked, because a fan-out that refuses to start would make them all fail
-    // for a reason that has nothing to do with what they are testing.
-    requireSignIn: false,
     focusOnRetry: false,
     settleMs: [0, 0],
     retryAttempts: 1,
   });
   await WF.bg.store.invalidate();
   await WF.storage.setAnswers([]);
-  await WF.storage.setSiteStatus({});
+  // Every site reachable, the state a user reaches by turning each switch on. See `verifiedAll`.
+  await WF.storage.setSiteStatus(verifiedAll());
   await WF.storage.setEvents([]);
   await WF.storage.setMeta({});
 });
@@ -591,7 +632,6 @@ test('a tab whose session has ended is not typed into, whatever its record says'
   await patch({
     enabledSites: ['copilot'],
     autoOpenTabs: false,
-    requireSignIn: true,
     groupTabs: false,
     singleWindow: false,
   });
@@ -628,7 +668,6 @@ test('a page that says it is signed in now re-stamps the check it is trusted on'
   await patch({
     enabledSites: ['copilot'],
     autoOpenTabs: false,
-    requireSignIn: true,
     groupTabs: false,
     singleWindow: false,
   });
@@ -835,6 +874,12 @@ test('a second prompt starts immediately; one message box is never typed into tw
 });
 
 test('the context menu asks every AI, using the selection or the page', async () => {
+  // The menu is a send like any other, so it reaches the AIs that are open: the tab-opening
+  // switch is off in the baseline, and a menu item that quietly opened seven tabs is the
+  // behaviour this default exists to stop. One open AI is enough for the fan-out to have
+  // somewhere to go, which is all this test is about.
+  openAiTab('chatgpt');
+
   const selection = await WF.bg.background.askFromMenu(
     { menuItemId: 'wf-ask-selection', selectionText: '  explain this error  ' },
     { id: 7, title: 'Docs', url: 'https://example.com/a' }
@@ -876,6 +921,11 @@ test('the context menu asks every AI, using the selection or the page', async ()
 test('a prompt typed in an AI page fans out, and its own echo does not', async () => {
   const prompt = 'what changed in this release';
   const hash = WF.util.fingerprint(prompt);
+
+  // One other AI is open, because that is what a fan-out can reach now: captured prompts go to
+  // the AIs you have, not to a browser's worth of tabs. See the test below for the case where
+  // nothing else is open.
+  openAiTab('claude');
 
   // You typed it yourself in ChatGPT: it goes to the others without a second press.
   const mine = await send({
@@ -1127,11 +1177,10 @@ test('a site that will not take a prompt in the background gets its tab brought 
 });
 
 test('an AI is only a target once its own page has said it is signed in', async () => {
-  // Back to shipped defaults for this one: the gate is the default, and a test that turns
-  // it off to make other tests convenient cannot prove that.
-  await WF.browser.storageRemove(WF.storage.KEYS.settings);
-  await WF.bg.store.invalidate();
-  assert.equal((await state()).settings.requireSignIn, true, 'checking before sending is the default');
+  // Nothing has been checked. The baseline every other test starts from is the state a user
+  // reaches by turning each switch on; this is the state before any of that, and there is no
+  // switch that turns the gate off, so there is nothing here to set up but the absence.
+  await WF.storage.setSiteStatus({});
 
   const signedOut = aiContentScript({
     verify: {
@@ -1152,21 +1201,26 @@ test('an AI is only a target once its own page has said it is signed in', async 
   assert.equal(refused.reason, 'no-verified-targets');
   assert.deepEqual(refused.skipped, ['chatgpt', 'gemini'], 'and it says which AIs were left out');
 
-  // Switching it on opens its tab and asks the page. Signed out, so it stays off.
+  // Asking the page behind that switch. Signed out: the reading is recorded and nothing else
+  // happens — the switch is the user's, and it is the send that has to refuse.
   const check = await send({ type: WF.MSG.VERIFY_SITE, siteId: 'gemini' });
   assert.equal(check.ok, true);
   assert.equal(check.verified, false);
   assert.equal(check.attention, WF.ATTENTION.SIGNED_OUT);
   assert.ok(calls.activated.includes(geminiTab), 'its tab is opened in front of the user');
   const afterCheck = await state();
-  assert.ok(!afterCheck.settings.enabledSites.includes('gemini'), 'and the switch stays off');
+  assert.deepEqual(
+    afterCheck.settings.enabledSites,
+    ['chatgpt', 'gemini'],
+    'both switches are still on: a check records a reading, it does not edit the list'
+  );
   assert.equal(
     afterCheck.sites.find((site) => site.id === 'gemini').verified,
     false,
-    'the site list says why rather than showing it as on'
+    'and the site list says what its page said'
   );
 
-  // Signed in now: the same switch turns it on, and a fan-out goes there.
+  // Signed in now: the same page, asked again, is the evidence a send is waiting for.
   siteTabs.set(
     geminiTab,
     aiContentScript({
@@ -1182,7 +1236,11 @@ test('an AI is only a target once its own page has said it is signed in', async 
     'a page that is already signed in is checked without being brought forward'
   );
   const afterGood = await state();
-  assert.ok(afterGood.settings.enabledSites.includes('gemini'));
+  assert.deepEqual(
+    afterGood.settings.enabledSites,
+    ['chatgpt', 'gemini'],
+    "still exactly the user's list, untouched by either reading"
+  );
   assert.equal(afterGood.sites.find((site) => site.id === 'gemini').verified, true);
 
   const sent = await send({ type: WF.MSG.BROADCAST, prompt: 'now it can be sent to' });
@@ -1196,35 +1254,34 @@ test('an AI is only a target once its own page has said it is signed in', async 
   await waitUntilIdle();
 });
 
-test('with every AI switched on and care off, a fan-out asks all ten, checked or not', async () => {
-  // The state a user reaches with the per-AI switches plus the careful-mode switch: every AI on,
-  // checking off. The fan-out then asks every one of them — a page still gets its say at the
-  // moment of sending, per AI, and says it on that AI's own row instead of quietly shrinking the
-  // fan-out in advance. The master switch deliberately no longer sets this state up for you; see
-  // the test below for what it does instead.
+test('switching every AI on by hand is not evidence any of them is reachable', async () => {
+  // The state the removed setting used to create: every AI switched on, nothing checked. There is
+  // no mode that asks all ten anyway — a list of ids the user wants is not a page saying it is
+  // signed in, and writing one into `enabledSites` cannot make it one.
   openAiTab('deepseek');
-  // Careful mode, the mode every other test turns off: a target has to have been checked.
-  await patch({ autoOpenTabs: false, groupTabs: false, singleWindow: false, requireSignIn: true });
+  await patch({ autoOpenTabs: false, groupTabs: false, singleWindow: false });
   await WF.storage.setSiteStatus({});
 
-  const before = await send({ type: WF.MSG.BROADCAST, prompt: 'who is listening' });
-  assert.equal(before.ok, false);
-  assert.equal(before.reason, 'no-verified-targets');
-  assert.deepEqual(before.skipped, WF.sites.ORDER, 'nothing has been checked, so nothing goes');
-
+  const tabsBefore = tabs.size;
   const switched = await send({
     type: WF.MSG.SET_SETTINGS,
-    patch: { enabledSites: WF.sites.ORDER.slice(), requireSignIn: false },
+    patch: { enabledSites: WF.sites.ORDER.slice() },
   });
-  assert.equal(switched.settings.requireSignIn, false, 'one press is what turns the checking off');
+  assert.equal(switched.settings.enabledSites.length, WF.sites.list().length, 'every switch is on');
+  assert.equal(
+    'requireSignIn' in switched.settings,
+    false,
+    'and no setting is left that could change the answer'
+  );
+  // A switch is a list, not a request: all ten go on without a tab being opened or raised, and
+  // without a page being asked. Reaching a page is a separate thing a send decides.
+  assert.equal(tabs.size, tabsBefore, 'switching them all on opened no tab');
+  assert.deepEqual(calls.activated, [], 'and raised none');
 
-  const after = await send({ type: WF.MSG.BROADCAST, prompt: 'now who is listening' });
-  assert.equal(after.ok, true);
-  assert.deepEqual(after.targets, WF.sites.ORDER, 'every AI, in the order the popup lists them');
-  assert.deepEqual(after.skipped, [], 'and none of them is left out behind the user\'s back');
-
-  await send({ type: WF.MSG.CANCEL });
-  await waitUntilIdle();
+  const refused = await send({ type: WF.MSG.BROADCAST, prompt: 'who is listening' });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, 'no-verified-targets');
+  assert.deepEqual(refused.skipped, WF.sites.ORDER, 'nothing has been checked, so nothing goes');
 });
 
 test('the master switch stops sending and keeps the AI picks across an off and on again', async () => {
@@ -1233,7 +1290,7 @@ test('the master switch stops sending and keeps the AI picks across an off and o
   // to ask the same AIs it asked before. An off switch that costs a re-selection every time is a
   // switch nobody dares touch, which is exactly what the first version of this one was.
   openAiTab('deepseek');
-  await patch({ autoOpenTabs: false, groupTabs: false, singleWindow: false, requireSignIn: false });
+  await patch({ autoOpenTabs: false, groupTabs: false, singleWindow: false });
 
   const picked = ['deepseek', 'chatgpt'];
   await patch({ enabledSites: picked.slice() });
@@ -1245,7 +1302,11 @@ test('the master switch stops sending and keeps the AI picks across an off and o
 
   const kept = await state();
   assert.deepEqual(kept.settings.enabledSites, picked, 'the off switch left the picks alone');
-  assert.equal(kept.settings.requireSignIn, false, 'and the careful-mode switch it sits next to');
+  assert.equal(
+    picked.every((id) => kept.sites.find((site) => site.id === id).verified),
+    true,
+    'and the sign-in check a stop button sits next to is not something it spends'
+  );
 
   await patch({ broadcastEnabled: true });
   const back = await send({ type: WF.MSG.BROADCAST, prompt: 'and this one goes out' });
@@ -1256,13 +1317,72 @@ test('the master switch stops sending and keeps the AI picks across an off and o
   await waitUntilIdle();
 });
 
+test('a closed AI is skipped, not opened — and not reported as needing you', async () => {
+  // The default. A fan-out reaches the AIs that are open, and says plainly what it did about
+  // the ones that are not: nothing was attempted, so nothing is broken. An amber badge over
+  // an AI the user never opened would be asking them to go and fix a tab they did not want,
+  // which is the same mistake in a different direction as opening ten of them.
+  openAiTab('chatgpt');
+
+  const before = tabs.size;
+  const alertsBefore = calls.notifications.length;
+  const started = await send({ type: WF.MSG.BROADCAST, prompt: 'who is awake' });
+  assert.equal(started.ok, true, 'the broadcast still runs for the AI that is open');
+  const snapshot = await waitUntilIdle();
+
+  assert.equal(tabs.size, before, 'and no tab was opened for the one that is closed');
+  const by = Object.fromEntries(snapshot.job.activeJob.targets.map((t) => [t.siteId, t]));
+  assert.equal(by.chatgpt.state, 'sent');
+  assert.equal(by.claude.state, 'skipped', 'not an error: it was never asked');
+  assert.equal(by.claude.errorCode, WF.CODE.NO_TAB);
+  assert.equal(by.claude.error, 'no tab open');
+  assert.ok(
+    !calls.notifications.slice(alertsBefore).some((n) => /claude/i.test(String(n.message || ''))),
+    'and no "needs you" alert was raised for it'
+  );
+});
+
+test('a prompt typed in a chat, with every other AI closed, opens nothing', async () => {
+  // The complaint this default is for, as a test: send in an existing conversation and a tab
+  // was born for every other AI. Now the fan-out reaches what is open, and with nothing else
+  // open it says so instead of opening seven tabs to have somewhere to send.
+  const before = tabs.size;
+  const captured = await send({
+    type: WF.MSG.CAPTURE,
+    siteId: 'chatgpt',
+    prompt: 'and this one changes nothing',
+    hash: WF.util.fingerprint('and this one changes nothing'),
+    url: 'https://chatgpt.com/',
+  });
+  assert.equal(captured.ok, false);
+  assert.equal(captured.reason, 'no-open-tabs');
+  assert.equal(tabs.size, before, 'no tab was opened to make the fan-out possible');
+});
+
+test('a fan-out with nothing open refuses, and the switch that fixes it does', async () => {
+  // The case the new default creates: nothing is open, so there is nothing to ask. Ten skipped
+  // rows and no explanation is a card full of silence, so the refusal names the one thing that
+  // changes the answer — and pressing it has to actually work, which is the second half here.
+  const before = tabs.size;
+  const refused = await send({ type: WF.MSG.BROADCAST, prompt: 'anyone there' });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, 'no-open-tabs');
+  assert.equal(tabs.size, before, 'it does not open one to make itself succeed');
+
+  await patch({ autoOpenTabs: true });
+  const started = await send({ type: WF.MSG.BROADCAST, prompt: 'anyone there' });
+  assert.equal(started.ok, true, 'with the switch on the same prompt goes out');
+  await waitUntilIdle();
+  assert.ok(tabs.size > before, 'because the closed AIs got tabs');
+});
+
 test('opening the site list asks the pages, and a stale sign-out corrects itself', async () => {
   // The record a misread leaves behind: signed out, and the check cleared with it. It used to be
   // permanent — the AI was switched off by the bad reading, an off AI's page goes dormant and
   // stops running its timer, and the only thing that could have cleared it was the switch the
   // bad reading had just turned off.
   const tab = openAiTab('kimi');
-  await patch({ enabledSites: ['kimi'], requireSignIn: true, autoOpenTabs: false });
+  await patch({ enabledSites: ['kimi'], autoOpenTabs: false });
   await WF.storage.setSiteStatus({
     kimi: {
       verifiedAt: 0,
@@ -1293,6 +1413,47 @@ test('opening the site list asks the pages, and a stale sign-out corrects itself
   assert.equal(tab, (await WF.browser.getTab(tab)).id);
 });
 
+test('the pages that cannot see tabs are told which AIs have one open', async () => {
+  // The launcher counts the same reach the popup does, and one of its three terms is a question
+  // only the background can answer: a content script has no `tabs` API, and the page it runs in
+  // knows about its own tab and nothing else. So it is asked for — a page booting, or coming back
+  // into view — and pushed when the set changes, in the same shape both ways.
+  const chatgpt = openAiTab('chatgpt');
+  const claude = openAiTab('claude');
+  await patch({ enabledSites: ['chatgpt', 'claude'], autoOpenTabs: false });
+
+  const asked = await send({ type: WF.MSG.OPEN_SITES });
+  assert.deepEqual(asked.open, { chatgpt: 1, claude: 1 });
+
+  const pushes = [];
+  const record = (message) => {
+    if (message.type === WF.MSG.OPEN_SITES) pushes.push(message.open);
+    return { ok: true };
+  };
+  siteTabs.set(chatgpt, record);
+  siteTabs.set(claude, record);
+  const untilPushed = async () => {
+    const deadline = Date.now() + 4000;
+    while (!pushes.length && Date.now() < deadline) await sleep(25);
+    assert.ok(pushes.length, 'the open AI pages are told');
+  };
+
+  // A second tab of an AI that is already open is not news: the reach counts AIs rather than tabs,
+  // and a message into every AI page is not free.
+  openAiTab('chatgpt');
+  await sleep(500); // longer than the push's own coalescing pause
+  assert.equal(pushes.length, 0, 'the set of open AIs did not change');
+
+  // Closing one is. The page still on screen has no way to notice that on its own, which is
+  // exactly the state the corner used to be wrong about: a pill promising to ask an AI that is
+  // gone. Both what a page is told and what it asks for are the same answer, from the same place.
+  closeTab(claude);
+  await untilPushed();
+  assert.deepEqual(pushes.at(-1), { chatgpt: 2 }, 'the pages still open are told who is left');
+  assert.equal(pushes.length, 1, 'and told once, not once per tab event');
+  assert.deepEqual((await send({ type: WF.MSG.OPEN_SITES })).open, { chatgpt: 2 });
+});
+
 /**
  * A tab on an AI site where nothing answers, whatever the browser thinks of the origin.
  *
@@ -1315,7 +1476,7 @@ test('an AI the browser never let us into says so, and is never blamed on the pa
   for (const pattern of KIMI) denyOrigin(pattern);
   try {
     const tab = openSilentTab('kimi');
-    await patch({ enabledSites: ['kimi'], requireSignIn: true });
+    await patch({ enabledSites: ['kimi'] });
 
     // Opening the panel asks every AI with a tab open what its page is showing. This one cannot
     // answer at all — so the only question left is whether that is the page's doing.
@@ -1349,7 +1510,9 @@ test('a silent page the browser does have is left alone, not blamed', async () =
   // not drawn yet has told us nothing, and "nothing" must not be written down as a verdict —
   // otherwise every slow load would put a warning next to an AI that is fine.
   const tab = openSilentTab('kimi');
-  await patch({ enabledSites: ['kimi'], requireSignIn: true });
+  await patch({ enabledSites: ['kimi'] });
+  // No record to begin with, so an empty one is what "told us nothing" has to leave behind.
+  await WF.storage.setSiteStatus({});
 
   const swept = await WF.bg.engine.refreshStatuses({ force: true });
   assert.equal(swept.asked, 0, 'nothing answered');

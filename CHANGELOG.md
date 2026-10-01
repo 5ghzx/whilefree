@@ -6,7 +6,81 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The launcher says what a press will reach, and opens the list.** The pill in the corner of every AI
+  page counted the switches the user had turned on, which is the list and not the reach: a fresh
+  install with ten on and none signed in read *Ask all 10* over a send that could not go anywhere.
+  It now counts the reach — the same switch, sign-in and open-tab conjunction the popup's *Goes to X
+  of Y* counts, from the same record and through the same rule — while the master switch being off is
+  named on the pill itself. Hovering it opens an overview of all ten: what each page last said (*signed in*, *not
+  checked yet*, an attention reason, or *off*), the page you are on marked as *this page*, and the one
+  press that fixes the two dead ends — turning WhileFree back on, which used to be advice with a walk
+  to the popup attached. A refused press holds that card open next to the reason, so the two land
+  together. The card is written in the popup's own words, because two sentences about one fact is how
+  a fact starts to look doubtful.
+- **The install shows the AI list instead of hiding it.** The welcome card the installer opens now
+  carries the same list as the *Sites* card, built from one row builder so the two can never disagree
+  about what a switch means. It is there because a fresh install used to start with all ten switches
+  off — a rule that read as a broken extension on the one screen a new user sees first.
+
+### Changed
+
+- **The count says what a send can be delivered to, not what the list holds.** *Goes to X of Y* was
+  counting a signed-in AI with no tab open as reachable — while the row beside it said *closed* and
+  the send skipped it with `no tab open`. That is the one term the tab default had just changed the
+  meaning of, and a number that ignores it describes a fan-out twice the size of the one that runs.
+  The reach is now the conjunction the engine enforces a moment before it types: switched on, signed
+  in, and — while *Open a tab for AIs you have not opened* is off — already open. It is one rule and
+  one sentence (`lib/reach.js`), read by the popup's summary and by the launcher's pill, card header,
+  row text (*closed* is now a row state, beside *signed in*) and tooltip, so the corner and the panel
+  cannot disagree about a number the user is asked to trust. The page gets the one term it cannot see
+  for itself from the background, which answers a page that asks and pushes to the open AI pages when
+  that set changes.
+- **A fan-out reaches the AIs you have open, and opens nothing by default.** Asking a question in an
+  existing conversation used to leave a tab behind for every other AI — one prompt in, seven tabs
+  born, each one loading a page you did not ask for. The tab is now the thing you request: a send
+  goes to the AIs that are already open, the rest are reported as *skipped* with `no tab open` on
+  their row, and no amber badge is raised for them, because nothing was attempted and nothing is
+  broken. When nothing at all is open the send is refused outright — from the popup, the context
+  menu, or a prompt typed into a page — and it says which switch opens tabs instead of starting a
+  job that would skip every target. *Open a tab for AIs you have not opened*, under the AI list in
+  the popup, restores the old behaviour; the tabs it opens still go into a window of their own.
+- **The build refuses to ship one browser differing from the other without saying so.**
+  `scripts/build.mjs` compares the two generated manifests key by key and fails when they disagree
+  outside the four differences that are deliberate: the background form (a service worker against an
+  event page), Chrome's `offscreen` permission, `minimum_chrome_version`, and Firefox's
+  `browser_specific_settings`. A permission added to one browser's list, or a content script dropped
+  from one, used to become a feature that worked on one side only and was invisible in review.
+- **An AI's switch is the user's list, and the sign-in gate moved to send time.** The switch used to
+  mean *switched on and verified*: pressing it opened the site's tab, asked the page, and an answer of
+  no took that AI off the list. So a fresh install was ten switches off — not what was stored, and not
+  anything the user had chosen — and an unrelated look at a page could switch a deliberately
+  switched-on AI off. Now `enabledSites` is exactly the list the user keeps: a switch opens nothing,
+  a row whose page has not confirmed a session reads *not checked yet*, and the fan-out refuses any AI
+  whose page has not said it is signed in — reported as *skipped*, and as `no-verified-targets` when
+  nothing is sendable. The check itself (`engine.verifySite`) only writes the reading; it no longer
+  has any say over the list.
+
+### Fixed
+
+- **A message in the corner can no longer outlive its own expiry.** A toast was taken away by its
+  timer and nothing else, and a timer is the one thing this cannot rest on: a background tab throttles
+  it towards *eventually*, so a refusal could still be sitting there — *turn WhileFree on in the
+  popup* — long after WhileFree was on. Every toast now carries a deadline that every render enforces,
+  the expired one is swept the moment the tab is looked at, and there is a × for the impatient. The
+  same delegation is what makes the refusal path honest: it was the message, not the state, that
+  people were reading.
+- **Turning the in-page launcher off and on again is not a one-way door.** The setting took the
+  launcher out of every open AI page and nothing put it back, so the switch only worked in the
+  direction that removes it; a page that has already booted now remounts it.
+
+### Removed
+
+- **The *Only send to AIs that say they are signed in* option.** With the behaviour unconditional it
+  had nothing left to control, and leaving it off was the direct cause of "no answer" from every tab
+  at once. `settings.requireSignIn` is deleted on the way in, so a stored `false` from an older build
+  cannot survive a merge or keep a hand-edited record skipping sites.
 
 ## [0.1.0] - 2026-09-25
 

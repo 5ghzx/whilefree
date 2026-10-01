@@ -3,7 +3,9 @@
   const WF = (globalThis.WF = globalThis.WF || {});
 
   const DEFAULTS = {
-    version: 1,
+    // 2 is the release whose default stopped opening a tab for an AI that is closed. The
+    // number is only ever compared, never displayed; see `normalize` for what it does.
+    version: 2,
 
     // Which AIs a broadcast fans out to. `null` means every AI the registry knows
     // about, which is the intended default: WhileFree has no paid tier, so there is no
@@ -13,12 +15,6 @@
 
     // Sending
     broadcastEnabled: true, // master switch: while this is off, nothing is ever sent
-    // An AI may only be sent to once its page has been opened and has said it is signed
-    // in. On by default: a fan-out to a site nobody is signed in to produces the one
-    // failure that reads as a broken extension rather than as a signed-out tab, and the
-    // check is a tab opening at the moment the user switches the AI on — which is where
-    // they would go next anyway.
-    requireSignIn: true,
     // 'continue' appends to the conversation already open; 'new_chat' starts a fresh
     // one each time, which is what you want when comparing answers to the same prompt.
     sendMode: 'continue',
@@ -35,7 +31,13 @@
     readyTimeoutMs: 30000,
 
     // Tabs
-    autoOpenTabs: true, // open a background tab for an enabled AI that is not open
+    // A broadcast reaches the AIs that are already open, and no further. Off by default,
+    // because a fan-out is something you do *from* a conversation you are in and the tabs it
+    // used to open arrived behind your back: ask once in an existing chat and ten tabs were
+    // born for it. Opening a tab is a heavier thing to do to someone than skipping one — it
+    // is memory, it is a loading page, it is a window that was not there before — so it is
+    // the thing the user asks for, and the switch below the list is where they ask.
+    autoOpenTabs: false,
     keepTabsOpen: true, // leave those tabs alone once the answer lands
     reuseExistingTabs: true,
     groupTabs: true, // put the broadcast's tabs in one tab group (Chrome only)
@@ -88,10 +90,9 @@
     // null (the default) means everything, which is how a newly added provider
     // becomes available without the user having to go and switch it on.
     //
-    // An explicitly *empty* list stays empty. That is a real state now that switching an
-    // AI on means having verified it: nothing is on the list until a page has said it is
-    // signed in, and quietly substituting the first provider for "nothing" would put back
-    // exactly the switch that was never turned on.
+    // An explicitly *empty* list stays empty. That is a real state — someone who has taken
+    // every AI out — and quietly substituting all ten for "nothing" would put back exactly
+    // the switches that were turned off.
     merged.enabledSites = Array.isArray(merged.enabledSites)
       ? merged.enabledSites.filter((id) => known.includes(id))
       : known.slice();
@@ -110,10 +111,17 @@
     merged.rangeDays = WF.util.clamp(Number(merged.rangeDays) || 7, 1, 3650);
     merged.notifyMinWaitMs = WF.util.nearestWaitStep(merged.notifyMinWaitMs);
     merged.sendMode = merged.sendMode === 'new_chat' ? 'new_chat' : 'continue';
+    // Whether an AI may be sent to is not a setting. It used to be one — `requireSignIn`, a
+    // switch in the popup and the dashboard — and switching it off was the only way to reach
+    // the behaviour it named: a fan-out into pages that had never said they were signed in,
+    // which comes back as "no answer" from seven tabs and reads as our bug. An AI is a target
+    // when its own page has said it is signed in, and there is nothing to turn that off with;
+    // a stored `false` from the old switch is dropped here so it cannot come back through a
+    // merge or a hand-edited record.
+    delete merged.requireSignIn;
     merged.retryAttempts = WF.util.clamp(Math.round(Number(merged.retryAttempts) || 2), 1, 4);
     for (const key of [
       'broadcastEnabled',
-      'requireSignIn',
       'autoCapture',
       'lockstep',
       'groupTabs',
@@ -125,6 +133,19 @@
       merged[key] = merged[key] !== false;
     }
     merged.eventsRetention = WF.util.clamp(Number(merged.eventsRetention) || 5000, 200, 50000);
+
+    // The one-time move to version 2, and the reason it has to exist.
+    //
+    // Version 1 stored `autoOpenTabs: true`, because that was the default then. It is the
+    // default no longer, and a stored `true` cannot be told apart from a deliberate yes — so
+    // without this, the change would reach only new installs, and the people who complained
+    // about ten tabs appearing behind their prompt would be the exact people who kept getting
+    // them. The switch is therefore reset once on the way up, and the record is stamped with
+    // the new version as part of the same write: after that, only the user's own setting
+    // decides, which is what "once" means. It is placed last so nothing below can put it back.
+    const storedVersion = Number(raw && raw.version) || 0;
+    merged.version = DEFAULTS.version;
+    if (storedVersion < DEFAULTS.version) merged.autoOpenTabs = false;
     return merged;
   }
 

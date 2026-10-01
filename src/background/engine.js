@@ -662,18 +662,24 @@
     }
     if (!targets.length) return { ok: false, reason: 'no-targets' };
 
-    // An AI is only a target once its page has said it is signed in. This is the gate the
-    // switch on the site list sets: without it a fan-out happily reports "no answer" for a
-    // site that was never signed in, which reads as our bug and cannot be fixed from the
-    // popup. What was left out is reported rather than silently dropped.
-    let skipped = [];
-    if (settings.requireSignIn !== false) {
-      const statuses = await WF.storage.getSiteStatus();
-      const now = Date.now();
-      const sendable = targets.filter((id) => isVerified(statuses[id], now));
-      skipped = targets.filter((id) => !sendable.includes(id));
-      if (!sendable.length) return { ok: false, reason: 'no-verified-targets', skipped };
-      targets = sendable;
+    // An AI is only a target once its own page has said it is signed in. Not a setting: a
+    // fan-out into a page that never said so happily reports "no answer" for a site that was
+    // never able to answer, which reads as our bug and cannot be fixed from the popup — and
+    // the switch that used to turn this off was only ever asked for by people who then had
+    // that exact experience. What was left out is reported rather than silently dropped.
+    const statuses = await WF.storage.getSiteStatus();
+    const now = Date.now();
+    const sendable = targets.filter((id) => isVerified(statuses[id], now));
+    const skipped = targets.filter((id) => !sendable.includes(id));
+    if (!sendable.length) return { ok: false, reason: 'no-verified-targets', skipped };
+    targets = sendable;
+
+    // With the tab-opening switch off — the default — the fan-out can only reach what is
+    // already open. Every target being closed is worth catching here rather than after the
+    // fact: a job that starts and skips all ten is a card of silence, and the caller is the
+    // one place that can say which switch to press instead.
+    if (settings.autoOpenTabs === false && !(await anyTabOpen(targets))) {
+      return { ok: false, reason: 'no-open-tabs', skipped, targets };
     }
 
     const job = makeJob({
@@ -792,6 +798,43 @@
   }
 
   /**
+   * How many tabs each AI has open right now, by site id.
+   *
+   * One query for all ten patterns rather than one per site, because three readers want this
+   * and they must all read the same answer: the send path ("is any of these open at all?",
+   * below), the popup's own row text, and the launcher's reach — which is the same number shown
+   * in two places, so it is asked for once here.
+   *
+   * The tabs are asked directly rather than read off `knownTabs`, because a browser that has
+   * just started has a record of nobody having said hello yet, and "nothing is open" is too
+   * strong a claim to make from a hello that has not arrived.
+   */
+  async function openCounts() {
+    const counts = {};
+    const tabs = await B.queryTabs({ url: WF.sites.matchPatterns() }).catch(() => []);
+    for (const tab of tabs) {
+      if (tab.id === undefined) continue;
+      const site = WF.sites.fromUrl(tab.url || '');
+      if (!site) continue;
+      counts[site.id] = (counts[site.id] || 0) + 1;
+    }
+    return counts;
+  }
+
+  /**
+   * Is any of these AIs open in a tab right now?
+   *
+   * With `autoOpenTabs` off — the default — a fan-out can only reach AIs that are already
+   * open, so "none of them is" is the one case worth catching before a job starts. The
+   * alternative is a card of ten rows saying "no tab open" and no explanation, and the fix
+   * is either opening a tab or turning that switch on: both are things the message can say.
+   */
+  async function anyTabOpen(siteIds) {
+    const open = await openCounts();
+    return siteIds.some((siteId) => (open[siteId] || 0) > 0);
+  }
+
+  /**
    * Has this site's own page said, recently, that it is signed in and ready?
    *
    * The rule itself lives in lib/status.js, because the popup, the dashboard and the send
@@ -800,33 +843,20 @@
   const isVerified = (status, now) => WF.status.isVerified(status, now);
 
   /**
-   * Put a site on the list of AIs a prompt goes to, or take it off. Registry order, so
-   * the popup list never reshuffles itself.
+   * Ask one AI's page whether it is signed in, and write down what it answers.
    *
-   * Nothing else writes `enabledSites` for a single site, which is deliberate: turning an
-   * AI on is the one place that has to have asked the page first.
-   */
-  async function setSiteEnabled(siteId, on) {
-    const settings = await bg.store.settings(true);
-    const enabled = settings.enabledSites || [];
-    const list = on
-      ? WF.sites.ORDER.filter((id) => id === siteId || enabled.includes(id))
-      : enabled.filter((id) => id !== siteId);
-    if (list.join('|') === enabled.join('|')) return enabled;
-    await bg.store.patchSettings({ enabledSites: list });
-    return list;
-  }
-
-  /**
-   * Turn one AI on, the long way round.
+   * This is a *check*, not a switch. It used to be both — turning an AI on came through here,
+   * and a page that answered "no" took that AI off the list — which is a rule that reads well
+   * until you live with it: a switch the user deliberately turned on went dark after an
+   * unrelated look at the page, a fresh install started with every switch off, and the one
+   * thing a switch is supposed to mean (this AI is mine) was decided by a page that had never
+   * heard of the user's list. The list is the user's and the reading is the page's; a send is
+   * where the two are made to agree (`broadcast` refuses anything unverified), so the only
+   * thing written here is the record: `verifiedAt`, `attention`, the composer, the URL.
    *
-   * Switching an AI on is not a checkbox; it is a promise that a prompt sent there will
-   * be answered. So turning one on opens its tab — in front of the user, because the next
-   * thing that may be needed is a sign-in — asks the page whether it is signed in, and
-   * only when the answer is yes does the AI go on the list of targets. A no takes it back
-   * off, so a switch that reads *off* is never quietly included in a fan-out. The popup
-   * switch and the dashboard switch both come through here, so the rule is the same
-   * wherever it is pressed.
+   * Opening the tab is still part of it, because a site with no tab cannot be asked. Nothing
+   * calls this on the way to turning a switch on any more — a switch writes the list and opens
+   * nothing — so this runs only when something explicitly wants a reading from the page.
    */
   async function verifySite(siteId, options) {
     const site = WF.sites.byId(siteId);
@@ -851,7 +881,6 @@
         ...(noAccess ? { attentionEvidence: 'permission' } : {}),
         url: site.newChatUrl,
       });
-      await setSiteEnabled(siteId, false);
       await bg.answers.updateBadge();
       if (noAccess) await bg.answers.notifyProblem({ siteId, title: 'needs you', message: accessMessage(site), key: `access:${siteId}` });
       return { ok: true, siteId, verified: false, reason: noAccess ? 'no-access' : 'no-tab' };
@@ -889,7 +918,6 @@
         ...(noAccess ? { attentionEvidence: 'permission' } : {}),
         url: tab.url,
       });
-      await setSiteEnabled(siteId, false);
       await bg.answers.updateBadge();
       if (noAccess) await bg.answers.notifyProblem({ siteId, title: 'needs you', message: accessMessage(site), key: `access:${siteId}` });
       return { ok: true, siteId, verified: false, reason: noAccess ? 'no-access' : 'no-answer', tabId: tab.id };
@@ -908,7 +936,6 @@
       url: res.url || tab.url,
     });
     await bg.answers.updateBadge();
-    await setSiteEnabled(siteId, verified);
 
     return {
       ok: true,
@@ -931,17 +958,16 @@
    *
    * This exists because the record was write-only in the direction that matters. A page only
    * spoke when it was loading, or on a two-minute timer, or when a send went wrong — so a
-   * verdict that was wrong once was wrong until something else happened to that site, and
-   * nothing did: the AI was switched off by the bad verdict, an off AI's page goes dormant and
-   * stops running its timer, and the popup went on reading "Signed out" about a session that
-   * had been fine for a week. The user's only way out was to press a switch that the same
-   * verdict had just switched off again.
+   * verdict that was wrong once stayed wrong until something else happened to that site, and
+   * nothing did: nobody presses anything on a page that looks asleep. The popup went on reading
+   * "Signed out" about a session that had been fine for a week, and since a send refuses an
+   * unverified site, the user's only way out was to open the tab and stir it by hand.
    *
    * So the list the user is about to read is built by asking, not by quoting. The page is the
    * only thing that knows, the ping is one message per open tab, and a clean answer here is the
-   * same evidence the turn-on check collects — which is why it also re-stamps `verifiedAt`.
-   * Without that, a site whose stamp was cleared by a misread would stay unverified forever, and
-   * a switch that never comes back on is not a switch.
+   * same evidence an explicit check collects — which is why it also re-stamps `verifiedAt`.
+   * Without that, a site whose stamp was cleared by a misread would stay unverified until
+   * somebody happened to type in it, and a reading that cannot correct itself is not a reading.
    *
    * Only sites with a tab open are asked: a site with no tab has no session to be wrong about,
    * and nothing to correct. Throttled, because the popup can be opened twice in a row and the
@@ -1357,10 +1383,24 @@
     }
 
     if (!tab || tab.id === undefined) {
+      // Two different things, and only one of them is a failure.
+      //
+      // With `autoOpenTabs` off — the default — this AI was simply not asked. Nothing went
+      // wrong, nothing is stuck, and there is nothing for the user to do; putting it in the
+      // "needs you" list would be an amber badge asking them to open a tab they chose not to
+      // open. A tab we *tried* to open and could not reach is the case that earns the alert.
+      if (!settings.autoOpenTabs) {
+        await pushTarget(job.id, siteId, {
+          status: 'skipped',
+          errorCode: WF.CODE.NO_TAB,
+          error: 'no tab open',
+        });
+        return { siteId, tab: null, alreadyFresh: false, opened: false };
+      }
       await pushTarget(job.id, siteId, {
         status: 'error',
         errorCode: WF.CODE.TAB_GONE,
-        error: settings.autoOpenTabs ? 'the tab could not be opened' : 'no tab open',
+        error: 'the tab could not be opened',
       });
       await reportTargetFailure(site, WF.CODE.TAB_GONE);
       return { siteId, tab: null, alreadyFresh: false, opened: false };
@@ -1777,8 +1817,8 @@
     ensureTab,
     verifySite,
     refreshStatuses,
-    setSiteEnabled,
     isVerified,
     visibleTabs,
+    openCounts,
   };
 })();

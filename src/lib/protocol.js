@@ -24,6 +24,11 @@
     PING: 'wf:ping', // -> this page's own live verdict: { hasComposer, signedIn, attention }
     CHIME: 'wf:chime',
     SETTINGS_CHANGED: 'wf:settings-changed',
+    // Which AIs have a tab open right now, `{ open: { siteId: count } }` — one term of the reach
+    // the launcher counts and the only one a content script cannot see for itself. The background
+    // pushes it when that set changes and answers it when a page asks (the page boots, or comes
+    // back into view); both land in the same handler, so there is one shape and one place to read.
+    OPEN_SITES: 'wf:open-sites',
     CANCEL_JOB: 'wf:cancel-job',
     ANSWERS: 'wf:answers', // the answers-ready list changed
     JOB: 'wf:job', // a broadcast started or ended, for the in-page status list
@@ -54,6 +59,11 @@
     INSERT_FAILED: 'insert-failed',
     SUBMIT_FAILED: 'submit-failed',
     TAB_GONE: 'tab-gone',
+    // No tab for this AI, and not opening one — the default. Deliberately not a failure:
+    // nothing was attempted, so nothing went wrong, and an amber badge for it would ask the
+    // user to fix a tab they may not have wanted in the first place. It is the code that
+    // keeps "not asked" out of the "needs you" list.
+    NO_TAB: 'no-tab',
     NEEDS_HUMAN: 'needs-human',
     // Another prompt is already going into this same site. Not queued behind it: the
     // user is told, because a prompt that silently waits looks like one that vanished.
