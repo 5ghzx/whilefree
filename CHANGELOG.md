@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-09
+
 ### Fixed
 
 - **DeepSeek was timed by the server instead of by the page.** Its whole answer comes back in one
