@@ -27,7 +27,7 @@ const REAL_DOM = WF.dom;
  * and what the address reads.
  */
 
-function makeHarness() {
+function makeHarness({ net = false } = {}) {
   const state = {
     now: 1_000_000,
     chars: 0,
@@ -46,10 +46,12 @@ function makeHarness() {
     detectAttention: () => null,
     modelLabel: () => null,
   };
-  // The network half of the watcher is left out: a stream that closes is the strongest
-  // completion signal there is, and it is tested by the background suite's fake content.
+  // The network half of the watcher is left out unless a test asks for it: a stream that
+  // closes is the strongest completion signal there is, and the sites that deliver an answer
+  // in one response are the ones where it says something the page has not finished saying.
+  // With `net: true` the watcher accepts stream events, which the test feeds by hand.
   const realNetwatch = WF.content.netwatch;
-  WF.content.netwatch = {};
+  WF.content.netwatch = net ? { NetWatcher: function NetWatcher() {} } : {};
 
   const doc = {
     body: { nodeName: 'BODY' },
@@ -202,6 +204,71 @@ test('an answer that finishes during the move is still reported as an answer', (
     const phases = h.phases.map((p) => p.phase);
     assert.ok(phases.includes(WF.PHASE.DONE), `expected done, got ${phases.join(', ')}`);
     assert.equal(phases.includes(WF.PHASE.ERROR), false, 'finished output is never "no answer"');
+  } finally {
+    if (watcher) watcher.stop('test');
+    h.restore();
+  }
+});
+
+test('an answer the server sent in one response is not finished until the page stops painting it', () => {
+  // Live measurement, DeepSeek, Firefox 158, 2026-10-08. The whole answer arrives in a single
+  // response of about a second — 1078 bytes for a 1277-character paragraph — and the page then
+  // types that text in over the next several seconds. The network closing was taken as the end,
+  // so the panel said "Ready after 2.8s" about an answer nobody could read yet and the event
+  // recorded 619 of its 1277 characters. Two things have to hold: a pause while the page is
+  // still generating (its stop control is up) is not a finish, and a closed stream is not one
+  // either while the text on screen is still growing.
+  const h = makeHarness({ net: true });
+  try {
+    watcher = h.make();
+    const sentAt = watcher.start();
+    // The request leaves with the press and the server is done with it 2.5s later.
+    WF.content.detect.noteStream({
+      siteId: 'deepseek',
+      startedAt: sentAt + 100,
+      firstByteAt: sentAt + 400,
+      endedAt: sentAt + 2500,
+      durationMs: 2400,
+      kind: 'endpoint',
+    });
+
+    // The first chunk is painted while the stream is still open; the page is still generating.
+    h.state.chars = 200;
+    h.state.stopButton = true;
+    h.tick();
+
+    // A gap in the typing, with nothing on screen changing for well over the quiet threshold.
+    // The page says it is still working, and that has to be enough to keep waiting.
+    h.tick();
+    h.tick();
+    assert.equal(
+      h.phases.filter((p) => p.phase === WF.PHASE.DONE).length,
+      0,
+      'a still-generating page is not a finished answer, however quiet it is'
+    );
+
+    // The stream is long closed by now, and the rest of the answer is painted.
+    h.state.stopButton = false;
+    h.state.chars = 900;
+    h.tick();
+    h.state.chars = 1277;
+    h.tick();
+    assert.equal(
+      h.phases.filter((p) => p.phase === WF.PHASE.DONE).length,
+      0,
+      'a closed stream does not finish an answer the page is still painting'
+    );
+
+    h.tick(); // the page holds still
+    const done = h.phases.find((p) => p.phase === WF.PHASE.DONE);
+    assert.ok(done, `expected done, got ${h.phases.map((p) => p.phase).join(', ')}`);
+    assert.equal(done.via, 'network');
+    assert.equal(done.charsAdded, 1277, 'the whole answer is the answer');
+    assert.equal(
+      done.doneAt - sentAt,
+      4500,
+      'the wait ends when the last character appeared, not when the stream closed'
+    );
   } finally {
     if (watcher) watcher.stop('test');
     h.restore();

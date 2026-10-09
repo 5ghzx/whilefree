@@ -194,6 +194,24 @@
 
     const before = sendEvidence(doc, site, input);
 
+    // Whether the box took the prompt and whether we can *read* that it did are two different
+    // questions, and only the first one decides whether there is anything to press send for.
+    //
+    // Measured live on Perplexity (Firefox, 2026-10-08): its composer is a Lexical editor
+    // (`div#ask-input[data-lexical-editor]`) that renders from its own model, in a tab sitting
+    // in a window nobody has focused, where Firefox throttles the frame that render waits on.
+    // The write lands — pressing the site's own Submit by hand sends the prompt and it answers
+    // — while every read-back of the box returns empty, so `setComposerText` comes back
+    // `empty-after-insert` or `doubled`. Treating those as "the insert failed" returned before
+    // the press, so a prompt that *was* in the box was never sent, and the retry typed it in a
+    // second time: the box ended up holding it twice and the panel called Perplexity failed.
+    //
+    // A read-back that disagrees therefore makes this insert *unverified*, not absent. Only an
+    // editor that refused every strategy (`method: 'none'`) has nothing in it to press for, and
+    // that case stays what it was: no message box. Everything else goes on to the press, whose
+    // evidence — the box empties, the stop control appears, the answer grows — is read from the
+    // page itself, and the page is not the throttled part.
+    let insertUnverified = false;
     // A retry after a send that may already have gone does not type again: the text is
     // sitting in the box, and typing over it is how a prompt ends up doubled.
     if (!skipInsert) {
@@ -209,17 +227,19 @@
         const settled = WF.dom.readComposer(input, WF.dom.normalize(prompt));
         if (settled.exact) {
           written = { ok: true, method: `${written.method}+settled` };
-        } else {
+        } else if (written.method === 'none') {
           return {
             ok: false,
-            // A box that took the text and a box that is not there are different problems,
-            // and only one of them means "message box not found".
-            reason: written.method === 'none' ? WF.ATTENTION.NO_COMPOSER : WF.ATTENTION.SEND_FAILED,
+            // A box that is not there is a different problem from a box that will not
+            // confirm what it took, and only the first one means "message box not found".
+            reason: WF.ATTENTION.NO_COMPOSER,
             inserted: false,
             method: written.method,
             reasonDetail: written.reason || null,
             diagnostic: WF.dom.diagnose(doc, site, url),
           };
+        } else {
+          insertUnverified = true;
         }
       }
     }
@@ -309,6 +329,9 @@
         reason: WF.ATTENTION.SEND_FAILED,
         inserted: true,
         method,
+        // Set when the box never confirmed the write. The retry path reads this and presses
+        // again instead of typing again, because the text may well be sitting in there.
+        insertUnverified,
         diagnostic: WF.dom.diagnose(doc, site, url),
       };
     }

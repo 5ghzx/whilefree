@@ -25,7 +25,16 @@
 #   WF_PROFILE=/tmp/wf-copy sh scripts/run-firefox.sh     # a copy, when the real one is busy
 #
 # Copy the profile with caches left behind and take the lock files out of the copy — a copy
-# holding `.parentlock` and `lock` is a profile Firefox refuses to open. See docs/TESTING.md.
+# holding `.parentlock` and `lock` is a profile Firefox refuses to open.
+#
+# The Remote Agent is optional, and leaving it out is not just a lighter rig. Starting it is
+# what makes Firefox answer `navigator.webdriver === true` on every page, and that is the exact
+# question a bot check is built to ask: with the port open, chatgpt.com, claude.ai and
+# perplexity.ai answered with "Just a moment..." instead of the app, so the pages under test
+# were not the pages a user gets. Nothing in the extension needs the agent; it is only what
+# scripts/bidi.mjs talks to. Say so on the command line when that is what you want:
+#
+#   WF_BIDI_PORT= sh scripts/run-firefox.sh     # no Remote Agent, navigator.webdriver false
 #
 #   sh scripts/run-firefox.sh [extra firefox arguments]
 #
@@ -33,7 +42,9 @@ set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 profile=${WF_PROFILE:-$HOME/.config/mozilla/firefox/bnbak5b7.devtab}
-bidi_port=${WF_BIDI_PORT:-9223}
+# `${VAR-}` and not `${VAR:-}` deliberately: an empty value is how the Remote Agent is asked
+# to stay off, and a default would put it back on the moment someone asked for it not to be.
+bidi_port=${WF_BIDI_PORT-9223}
 rdp_port=${WF_RDP_PORT:-6000}
 
 if [ ! -d "$profile" ]; then
@@ -116,14 +127,20 @@ ensure_pref devtools.chrome.enabled
 
 echo "browser  $browser"
 echo "profile  $profile"
-echo "bidi     ws://127.0.0.1:$bidi_port/session   (scripts/bidi.mjs)"
+if [ -n "$bidi_port" ]; then
+  echo "bidi     ws://127.0.0.1:$bidi_port/session   (scripts/bidi.mjs)"
+else
+  echo "bidi     off — navigator.webdriver stays false, bot checks see an ordinary browser"
+fi
 echo "devtools ws://127.0.0.1:$rdp_port              (content-script and background worlds)"
 echo
 
-exec "$browser" \
-  --profile "$profile" \
-  --no-remote \
-  --new-instance \
-  --remote-debugging-port "$bidi_port" \
-  --start-debugger-server "$rdp_port" \
-  "$@"
+# The ports are prepended rather than written inline, so the optional one can be absent without
+# an awkward empty argument: `--remote-debugging-port ""` is not "no agent", it is a bad parse.
+if [ -n "$bidi_port" ]; then
+  set -- --remote-debugging-port "$bidi_port" "$@"
+fi
+set -- --start-debugger-server "$rdp_port" "$@"
+set -- --profile "$profile" --no-remote --new-instance "$@"
+
+exec "$browser" "$@"

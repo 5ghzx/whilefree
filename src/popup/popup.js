@@ -624,7 +624,7 @@ async function checkTab() {
     `message box   ${
       d.composer ? `found (${d.composer.tag}, ${d.composer.chars} characters)` : 'not found'
     }`,
-    `send button   ${d.send ? `found (${d.send.label})` : 'not found'}`,
+    `send button   ${d.send ? `found (${d.send.label || 'unlabelled'})` : 'not found'}`,
     `stop button   ${d.stopPresent ? 'on screen — an answer is arriving now' : 'not on screen'}`,
     `answer text   ${d.answers.chars} characters in ${d.answers.nodes} block(s)`,
     `needs you     ${d.attention ? WF.attentionLabel(d.attention.reason) : 'nothing'}`,

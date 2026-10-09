@@ -203,17 +203,41 @@
       newChatUrl: 'https://chat.deepseek.com/',
       input: {
         kind: 'auto',
-        selectors: ['textarea#chat-input', 'textarea[placeholder]', 'textarea'],
+        // `#chat-input` is what this box used to be. Read live on a signed-in page (Firefox
+        // 158, 2026-10-08) it is a plain `<textarea placeholder="Message DeepSeek">` with no id
+        // at all, so the placeholder leads — it survives markup churn, and matching the
+        // attribute rather than its text keeps it working on a translated page. The old id
+        // stays behind it for builds that still have one.
+        selectors: ['textarea[placeholder]', 'textarea#chat-input', 'textarea'],
       },
       send: {
         // DeepSeek's send control is a role=button div: pressing Enter is more
         // reliable than guessing the node, so Enter is primary and the click is
         // only a fallback.
         mode: 'enter',
-        selectors: ['div[role="button"][aria-label*="Send" i]', 'button[type="submit"]'],
+        selectors: [
+          // The same live reading: the control is the filled circle at the right of the box and
+          // it carries no label of any kind — no aria-label, no title, no text — so the only
+          // thing that says what it is is the icon inside it. The arrow is the send state, and
+          // the stop square replaces it while an answer is arriving, which is why this matches
+          // the arrow: a click through this selector can only ever be a send. A redesign around
+          // a different icon leaves it matching nothing — the state it was in before, where the
+          // click fallback is dead and Enter (which does work) carries the send alone.
+          'div[role="button"].ds-button--circle:has(path[d^="M8.3125"])',
+          'div[role="button"][aria-label*="Send" i]',
+          'button[type="submit"]',
+        ],
       },
       stop: {
-        selectors: ['div[role="button"][aria-label*="Stop" i]', 'button[aria-label*="Stop" i]'],
+        selectors: [
+          // The stop square, inside that same circle button. Not a cosmetic detail: the page
+          // shows it for as long as it is still typing an answer in, and on this site it is the
+          // only "still generating" signal there is. Without it a pause between two painted
+          // chunks looked exactly like a finished answer.
+          'div[role="button"].ds-button--circle:has(path[d^="M2 4.88"])',
+          'div[role="button"][aria-label*="Stop" i]',
+          'button[aria-label*="Stop" i]',
+        ],
       },
       answer: {
         selectors: ['div[class*="ds-markdown"]', '.ds-markdown--block'],

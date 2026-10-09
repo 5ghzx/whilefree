@@ -1,6 +1,10 @@
 // Which insertion strategy does a Lexical editor accept?
 //
 //   WF_WORLD=ext node scripts/cdp.mjs eval perplexity.ai @scripts/probes/insert-strategies.js
+//   node scripts/rdp.mjs eval perplexity @scripts/probes/insert-strategies.js   # Firefox rig
+//
+// The return is stringified because the DevTools-protocol reading of an object is a grip — a
+// handle on something you cannot see — and the whole value of this probe is the table inside it.
 //
 // Perplexity and Kimi both render `<span data-lexical-text="true">`, and on both the normal
 // path fails: `execCommand('insertText')` returns true and leaves the box empty. This tries
@@ -81,5 +85,5 @@
     });
   }
   clean();
-  return { picked: { tag: composer.tagName, id: composer.id || null }, results };
+  return JSON.stringify({ picked: { tag: composer.tagName, id: composer.id || null }, results }, null, 1);
 })();

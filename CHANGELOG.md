@@ -6,6 +6,22 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **DeepSeek was timed by the server instead of by the page.** Its whole answer comes back in one
+  response of about a second, and the page then types that text in over the next several. The wait
+  ended when the request closed, so a 1277-character answer was reported as *Ready after 2.8s* —
+  while it was still appearing — with 619 characters of it recorded. The wait now also requires the
+  text on screen to have stopped growing, and the time it reports is the moment the last character
+  appeared; on a site that paints as it streams, that is the same instant as before. DeepSeek's send
+  and stop controls are found as well (they carry no labels at all — the icon state is the only
+  signal the page offers), so the click fallback and the "still generating" check work again.
+- **Perplexity was never actually asked.** Its composer is a Lexical editor that renders from its own
+  model, and in an unfocused tab every read-back of the box is empty while the write itself lands.
+  The send path read that as a failed insert and returned *before pressing send*, so the prompt was
+  never sent and the retry typed it in a second time. A read-back that disagrees now makes the insert
+  *unverified* rather than absent, and the press still happens.
+
 ## [0.2.0] - 2026-10-01
 
 ### Added

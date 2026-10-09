@@ -86,6 +86,10 @@
       this.doneAt = null;
       this.awayMs = 0;
       this.quietMs = 0;
+      // When the on-screen answer last grew, and what quiet is measured from before it ever
+      // did. Both are timestamps rather than counters — the reason is in `tick`.
+      this.lastGrowthAt = null;
+      this.quietAnchor = now;
       this.baselineChars = WF.dom.assistantChars(this.doc, this.site).chars;
       this.highWater = this.baselineChars;
       this.lastTick = now;
@@ -176,6 +180,8 @@
       this.baselineChars = WF.dom.assistantChars(this.doc, this.site).chars;
       this.highWater = this.baselineChars;
       this.quietMs = 0;
+      this.lastGrowthAt = null;
+      this.quietAnchor = now;
       this.lastTick = now;
       // The stream this watch was following is re-found by `stream()` on the next tick
       // against the same `sentAt`, so nothing about the answer is lost by forgetting it.
@@ -216,7 +222,7 @@
       // mark makes the measurement monotonic no matter what the page does.
       if (chars > this.highWater) {
         this.highWater = chars;
-        this.quietMs = 0;
+        this.lastGrowthAt = now;
         this.seenOutput = true;
         if (this.firstWordAt === null) {
           this.firstWordAt = now;
@@ -225,9 +231,13 @@
           this.phase = WF.PHASE.STREAMING;
           this.emit(WF.PHASE.STREAMING);
         }
-      } else {
-        this.quietMs += TICK_MS;
       }
+      // Quiet, measured rather than counted. This used to be a sum of tick intervals, which is
+      // not the same number: ticks fire on mutations as well as on the timer, so a page
+      // repainting every 250ms reached the 1100ms "finished" threshold in about half a second
+      // and an answer still being painted could be declared complete. Measured from the
+      // timestamp of the last character, the number means what it says.
+      this.quietMs = now - (this.lastGrowthAt || this.quietAnchor);
 
       const stream = this.stream();
       const grew = this.highWater > this.baselineChars;
@@ -238,6 +248,15 @@
       const stopped = !WF.dom.findStopButton(this.doc, this.site);
       // The stream has closed and the page has had a moment to paint what arrived.
       const streamClosed = !!(stream && stream.endedAt && now - stream.endedAt >= NET_SETTLE_MS);
+      // A closed stream is not the same thing as a finished answer, and DeepSeek is where that
+      // stopped being academic. Measured live (Firefox 158, 2026-10-08): its whole answer arrives
+      // in one response of about a second — 1078 bytes for a 1277-character paragraph — and the
+      // page then types that text in over the next seven. The network said "finished" 2.8s after
+      // the press, while the paragraph was still appearing: the panel said *Ready after 2.8s*
+      // about an answer nobody could read yet, and the event recorded 619 of its 1277
+      // characters. The stream being over is the server's half; the page has its own, so the
+      // network path waits for the text on screen to hold still as well.
+      const painted = this.lastGrowthAt ? now - this.lastGrowthAt >= NET_SETTLE_MS : true;
 
       // A check or a quota banner that appears mid-answer is the one thing worth
       // interrupting for: the answer will never arrive.
@@ -254,8 +273,13 @@
 
       // Two ways to be finished, and the network is the better one: it ends when the
       // server stops sending, rather than when the page happens to hold still.
-      if (output && stopped && (streamClosed || this.quietMs >= DONE_QUIET_MS)) {
-        this.doneAt = streamClosed && stream.endedAt ? stream.endedAt : now;
+      if (output && stopped && ((streamClosed && painted) || this.quietMs >= DONE_QUIET_MS)) {
+        // When the text was still growing after the stream had closed, that last character is
+        // the moment the answer became readable — and it is what the user waited for. On the
+        // ordinary path, where the paint ends with the stream, the two are the same instant and
+        // this changes nothing.
+        this.doneAt =
+          streamClosed && stream.endedAt ? Math.max(stream.endedAt, this.lastGrowthAt || 0) : now;
         this.sawStreaming = true;
         this.stop();
         this.emit(WF.PHASE.DONE, {

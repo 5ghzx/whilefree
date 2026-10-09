@@ -1233,7 +1233,15 @@
       if (result.code === WF.CODE.NEEDS_HUMAN) break;
 
       if (attempt < maxAttempts && retryable(result.code)) {
-        const recovered = await mayHaveLanded(job, site, result, attempt);
+        // An insert the page never confirmed is treated as "in the box", and for the same
+        // reason `probe` exists: the text may well be there. Measured live on Perplexity, whose
+        // editor renders from its own model while a read of it comes back empty — typing again
+        // put a second copy of the prompt in the box, and the first one was never sent. A press
+        // on a box that turns out to be empty costs one attempt and nothing else.
+        const unverified = Boolean(result.result && result.result.insertUnverified);
+        const recovered = unverified
+          ? 'in-composer'
+          : await mayHaveLanded(job, site, result, attempt);
         if (recovered === 'landed') return;
         // Still in the box: the next attempt presses send instead of retyping.
         if (recovered === 'in-composer') skipInsert = true;

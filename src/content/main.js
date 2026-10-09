@@ -131,7 +131,19 @@
       reportStatus(reason === WF.ATTENTION.SEND_FAILED ? null : { reason });
       content.overlay.toast(`${site.name}: ${WF.attentionLabel(reason)}.`, 'bad', 9000);
       content.tracker.markProgrammatic(0);
-      return { ok: false, reason, diagnostic: result.diagnostic };
+      // What the box did is part of the verdict and has to survive the trip: `inserted` decides
+      // whether the failure is named after the insert or the press (see `codeFor` in the
+      // engine), and `insertUnverified` is what stops a retry from typing the prompt in twice
+      // when the box never confirmed the first write.
+      return {
+        ok: false,
+        reason,
+        inserted: Boolean(result.inserted),
+        insertUnverified: Boolean(result.insertUnverified),
+        method: result.method || null,
+        reasonDetail: result.reasonDetail || null,
+        diagnostic: result.diagnostic,
+      };
     }
 
     const sentAt = startWatcher(msg.jobId, result.submittedAt);
