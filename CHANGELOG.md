@@ -6,6 +6,27 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **An answer's own markup counted the same text up to three times.** Gemini's adapter names the turn
+  (`model-response`), its text container (`.model-response-text`) and the content element
+  (`message-content`), and all three hold the same paragraph — so a live 1353-character answer was
+  recorded as **4066**, with the turn's `Gemini said` label along for the ride. The answer measurement
+  now keeps only the innermost match of a site's own selectors: one answer, counted once. Qwen's list
+  has the same shape, and the rule is in the shared measurement rather than in any one adapter.
+- **A one-word answer could land before the watch began, and be reported as no answer.** Confirming a
+  send watches the page for a few seconds, and a warm tab answers a one-word prompt inside them. The
+  watch then took its baseline *after* the answer existed, could never see growth, and reported "no
+  answer appeared" 35 seconds later about an answer sitting on the page — measured live on Gemini. The
+  reading the send path already takes before typing now travels with the send and is the watch's
+  baseline whenever the page is at least as full as it was then.
+- **"No answer appeared" was decided without looking at the stop control.** The rule is meant to fire
+  when a page produced nothing *and* is not working — its own comment says *no output and no stop
+  button this long* — but the condition checked only the output. A throttled tab that was visibly
+  mid-answer was aborted as a failure and offered a retry for a prompt that had worked; two fan-out
+  runs in a row failed that way against a page that held the answer. The watch now keeps waiting while
+  the page says it is working, and still reports a page that gives up with nothing painted.
+
 ## [0.2.1] - 2026-10-09
 
 ### Fixed

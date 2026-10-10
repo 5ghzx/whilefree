@@ -110,6 +110,40 @@ test('the send is timed from the press, not from the moment it was confirmed', (
   }
 });
 
+test('an answer that lands before the watch begins is still counted', () => {
+  // The send is confirmed by watching the page for up to a few seconds, and a one-word prompt
+  // on a warm tab can be answered inside them. Measured live on Gemini (2026-10-09): the
+  // 4-character answer painted during the confirmation, the baseline taken when the watch
+  // began already held it, and the panel said "no answer appeared" 35 seconds later about an
+  // answer sitting on the page. The reading taken before the prompt was typed is passed in as
+  // the baseline, so output that pre-dates the watch still counts.
+  const h = makeHarness();
+  try {
+    watcher = h.make();
+    h.state.chars = 100;
+    const pressedAt = h.state.now;
+    // The answer is already on the page by the time the watch begins, which is the whole
+    // point: the reading taken *now* would hold it and count nothing.
+    h.state.chars = 104;
+    const sentAt = watcher.start(pressedAt, 100);
+    assert.equal(sentAt, pressedAt, 'the clock still starts at the press');
+    assert.equal(watcher.baselineChars, 100, 'the pre-prompt reading is the baseline');
+
+    h.tick();
+    assert.equal(watcher.phase, WF.PHASE.STREAMING, 'output that pre-dates the watch still streams');
+    assert.notEqual(watcher.firstWordAt, null, 'and it is seen as the first word');
+
+    // Nothing more arrives; the answer is complete.
+    h.state.chars = 104;
+    h.tick(1200);
+    assert.equal(watcher.phase, WF.PHASE.DONE, 'it finishes instead of failing');
+    assert.equal(watcher.highWater - watcher.baselineChars, 4, 'the answer is the four characters it was');
+  } finally {
+    if (watcher) watcher.stop('test');
+    h.restore();
+  }
+});
+
 test('a press in the future is ignored rather than trusted', () => {
   const h = makeHarness();
   try {
@@ -142,6 +176,25 @@ test('a container holding the prompt is not assistant output', () => {
   const nodes = REAL_DOM.assistantNodes(doc, site);
   assert.deepEqual(nodes, [answerOnly], 'only the answer itself is measured');
   assert.equal(REAL_DOM.assistantChars(doc, site).chars, 'Claude responded: PONG'.length);
+});
+
+test('a wrapper and the content inside it are one answer, not three', () => {
+  // Gemini names the turn, its text container and the content element, and all three hold the
+  // same paragraph: the live page recorded a 1353-character answer as 4066, with the turn also
+  // contributing its "Gemini said" label. Only the innermost match is the answer.
+  const answer = 'Rivers shape valleys primarily by eroding and depositing.';
+  const content = { textContent: answer, querySelector: () => null };
+  const container = { textContent: answer, querySelector: () => null, contains: (n) => n === content };
+  const turn = { textContent: `Gemini said ${answer}`, querySelector: () => null, contains: (n) => n === container || n === content };
+  const doc = {
+    querySelectorAll: (selector) =>
+      selector === 'model-response' ? [turn] : selector === '.model-response-text' ? [container] : [content],
+  };
+  const site = { answer: { selectors: ['model-response', '.model-response-text', 'message-content'] } };
+
+  const nodes = REAL_DOM.assistantNodes(doc, site);
+  assert.deepEqual(nodes, [content], 'the innermost match is the one counted');
+  assert.equal(REAL_DOM.assistantChars(doc, site).chars, answer.length, 'the answer is counted once');
 });
 
 test('a page that moves to its own conversation address keeps the watch', () => {
@@ -269,6 +322,39 @@ test('an answer the server sent in one response is not finished until the page s
       4500,
       'the wait ends when the last character appeared, not when the stream closed'
     );
+  } finally {
+    if (watcher) watcher.stop('test');
+    h.restore();
+  }
+});
+
+test('a page that says it is still generating is not reported as no answer', () => {
+  // The error is for a prompt that produced nothing *and left no sign of working*, which is
+  // what the constant's own comment says. Measured live on Gemini (2026-10-09): a fan-out
+  // target raised its stop control and took longer than 35 seconds to paint a one-word answer
+  // on a hidden, throttled tab, and the panel said "no answer appeared" while the page was
+  // still visibly generating.
+  const h = makeHarness();
+  try {
+    watcher = h.make();
+    watcher.start();
+    h.state.stopButton = true; // the page says it is working
+    for (let i = 0; i < 45; i += 1) h.tick();
+
+    assert.equal(
+      h.phases.some((p) => p.phase === WF.PHASE.ERROR),
+      false,
+      'still generating is not "no answer"'
+    );
+    assert.equal(watcher.running, true, 'the watch keeps waiting');
+
+    // The site gives up on its own — no stop control and nothing painted. That is the moment
+    // the answer really did not come.
+    h.state.stopButton = false;
+    h.tick();
+    const error = h.phases.find((p) => p.phase === WF.PHASE.ERROR);
+    assert.ok(error, 'a page that stopped working with nothing on it is reported');
+    assert.equal(error.reason, 'no-answer-detected');
   } finally {
     if (watcher) watcher.stop('test');
     h.restore();

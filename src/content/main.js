@@ -82,7 +82,7 @@
     await WF.browser.send({ type: WF.MSG.STATE, ...payload });
   }
 
-  function startWatcher(jobId, submittedAt) {
+  function startWatcher(jobId, submittedAt, baselineChars) {
     if (watcher) watcher.stop('superseded');
     watcher = new WF.content.detect.AnswerWatcher({
       doc: document,
@@ -90,8 +90,9 @@
       jobId,
       onPhase,
     });
-    // The press that sent it, not the moment the press was confirmed.
-    const sentAt = watcher.start(submittedAt);
+    // The press that sent it, not the moment the press was confirmed — and the reading taken
+    // before the prompt was typed, so an answer painted during that confirmation still counts.
+    const sentAt = watcher.start(submittedAt, baselineChars);
     WF.browser.send({
       type: WF.MSG.STATE,
       jobId,
@@ -146,7 +147,7 @@
       };
     }
 
-    const sentAt = startWatcher(msg.jobId, result.submittedAt);
+    const sentAt = startWatcher(msg.jobId, result.submittedAt, result.baselineChars);
     content.tracker.markPromptSent();
     content.tracker.markInFlight(msg.jobId, sentAt, 'broadcast');
     return { ok: true, method: result.method, via: result.via, sentAt };

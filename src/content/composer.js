@@ -336,7 +336,18 @@
       };
     }
 
-    return { ok: true, method, via: confirm.via, inserted: true, submittedAt: confirm.submittedAt || submittedAt };
+    // The answer reading taken before the prompt was typed goes back with the success. The
+    // watch starts a moment later, once the send has been confirmed, and on a warm tab an
+    // answer to a one-word prompt can be painted inside that second — a baseline taken then
+    // would already contain it (see `start` in detect.js).
+    return {
+      ok: true,
+      method,
+      via: confirm.via,
+      inserted: true,
+      submittedAt: confirm.submittedAt || submittedAt,
+      baselineChars: before.answers.chars,
+    };
   }
 
   /**

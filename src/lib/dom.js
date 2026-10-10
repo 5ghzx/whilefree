@@ -363,7 +363,32 @@
         nodes.push(node);
       }
     }
-    return nodes;
+    return innermost(nodes);
+  }
+
+  /**
+   * Drop any candidate that contains another candidate, because the site's own lists nest.
+   *
+   * Gemini names the turn (`model-response`), its text container (`.model-response-text`) and
+   * the content element (`message-content`), and all three hold the same paragraph: a
+   * 1353-character answer was recorded as **4066**, three times the answer, with the turn also
+   * contributing its `Gemini said` label. Qwen's list has the same shape, which is why its
+   * comment already says a reply was counted three times over. The innermost match is the
+   * answer itself; a wrapper adds the site's chrome around it. So a node that contains another
+   * candidate is dropped and only what is left is measured — one answer, counted once.
+   */
+  function innermost(nodes) {
+    return nodes.filter((node) => {
+      for (const other of nodes) {
+        if (other === node) continue;
+        try {
+          if (typeof node.contains === 'function' && node.contains(other)) return false;
+        } catch (err) {
+          /* a node that cannot be searched is kept in the count */
+        }
+      }
+      return true;
+    });
   }
 
   /** Characters of assistant output visible right now. Length only, never text. */

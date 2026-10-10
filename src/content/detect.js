@@ -70,7 +70,7 @@
      * watching the page for up to a few seconds afterwards. A clock that starts after the
      * answer's own request has begun cannot use the network to time anything.
      */
-    start(submittedAt) {
+    start(submittedAt, beforePromptChars) {
       if (this.running) return this.sentAt;
       this.running = true;
       // The escape hatch in the panel ("mark this one done") has no reference of its
@@ -90,8 +90,21 @@
       // did. Both are timestamps rather than counters — the reason is in `tick`.
       this.lastGrowthAt = null;
       this.quietAnchor = now;
-      this.baselineChars = WF.dom.assistantChars(this.doc, this.site).chars;
-      this.highWater = this.baselineChars;
+      const measured = WF.dom.assistantChars(this.doc, this.site).chars;
+      // An answer can be painted *before* the watch begins, because the send is confirmed
+      // first — a few seconds of watching the page — and a one-word prompt on a warm tab is
+      // answered inside them. Measured live (Gemini, 2026-10-09): a 4-character answer
+      // painted during the confirmation, the baseline taken here already contained it, the
+      // watch saw no output at all and reported **"no answer appeared" after 35 seconds**
+      // about an answer sitting on the page. So the reading taken before the prompt was
+      // typed is passed in, and it wins whenever the page is at least as full as it was
+      // then — the growth it shows is the answer. When the page is *less* full than that
+      // reading (these apps create the conversation and move to its own address during the
+      // confirmation, so the new page starts nearly empty), what is on screen now is the
+      // only baseline that means anything.
+      const seed = Number.isFinite(beforePromptChars) ? Math.min(measured, beforePromptChars) : measured;
+      this.baselineChars = seed;
+      this.highWater = seed;
       this.lastTick = now;
       this.sawStreaming = false;
       // "Output has been seen for this prompt", which survives a rebase and is therefore
@@ -173,6 +186,12 @@
      * page paints the prompt (and sometimes the whole earlier conversation) before the answer
      * starts, and against the old baseline that paint alone looks like output that has
      * already stopped.
+     *
+     * Known limit, measured live (DeepSeek, 2026-10-09): this conversation is created and its
+     * answer is painted *after* the stream closes, so a move that lands while the page is
+     * still empty resets the watch to zero and the answer that arrives afterwards can be
+     * recorded with no length (`charsAdded: null`) — answered, but unmeasured. See
+     * docs/SITE-BEHAVIOUR.md row 7 for the same family of virtualisation problems.
      */
     rebase() {
       if (!this.running) return;
@@ -307,7 +326,15 @@
         return;
       }
 
-      if (!output && !this.sawStreaming && now - this.sentAt > NOTHING_ARRIVED_MS) {
+      // The constant's own words are "no output *and no stop button* this long". The stop
+      // control is the page saying it is working, and without it in the condition a long
+      // answer on a throttled tab was reported as no answer at all — measured live on Gemini
+      // (2026-10-09): a fan-out target raised its stop control, took longer than 35 seconds to
+      // paint its one-word answer, and the panel said "no answer appeared" about a page that
+      // was still visibly generating. With the stop control up the watch keeps waiting; the
+      // answer timeout still applies, and a page that gives up on its own (stop control down)
+      // is reported here exactly as it was before.
+      if (!output && !this.sawStreaming && stopped && now - this.sentAt > NOTHING_ARRIVED_MS) {
         this.stop();
         this.emit(WF.PHASE.ERROR, { reason: 'no-answer-detected' });
       }
