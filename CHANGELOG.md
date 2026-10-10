@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-10
+
 ### Fixed
 
 - **An answer's own markup counted the same text up to three times.** Gemini's adapter names the turn
